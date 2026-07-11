@@ -201,17 +201,20 @@ const getRecentTransactions: FinanceTool = {
       );
     }
     const rows = await db
-      .select()
+      .select({ t: transactions, accountName: financialAccounts.name })
       .from(transactions)
+      .leftJoin(financialAccounts, eq(financialAccounts.id, transactions.accountId))
       .where(and(...conds))
       .orderBy(desc(transactions.date))
       .limit(limit);
-    return rows.map((t) => ({
+    return rows.map(({ t, accountName }) => ({
       id: t.id,
       date: t.date,
       amount: num(t.amount),
       name: t.name,
       merchant: t.overrideMerchant ?? t.merchantName,
+      account: accountName,
+      accountId: t.accountId,
       category: t.overrideCategory ?? t.aiCategory ?? t.category,
       subcategory: t.overrideSubcategory ?? t.aiSubcategory ?? t.subcategory,
       isTransfer: t.overrideIsTransfer ?? t.isTransfer,
@@ -249,17 +252,20 @@ const searchTransactions: FinanceTool = {
     if (minAmount != null) conds.push(gte(transactions.amount, String(minAmount)));
     if (maxAmount != null) conds.push(lte(transactions.amount, String(maxAmount)));
     const rows = await db
-      .select()
+      .select({ t: transactions, accountName: financialAccounts.name })
       .from(transactions)
+      .leftJoin(financialAccounts, eq(financialAccounts.id, transactions.accountId))
       .where(and(...conds))
       .orderBy(desc(transactions.date))
       .limit(limit);
-    return rows.map((t) => ({
+    return rows.map(({ t, accountName }) => ({
       id: t.id,
       date: t.date,
       amount: num(t.amount),
       name: t.name,
       merchant: t.merchantName,
+      account: accountName,
+      accountId: t.accountId,
       category: t.category,
     }));
   },
@@ -543,16 +549,18 @@ const getLargestTransactions: FinanceTool = {
     if (direction === "outflow") conds.push(sql`${transactions.amount} < 0`);
     if (direction === "inflow") conds.push(sql`${transactions.amount} > 0`);
     const rows = await db
-      .select()
+      .select({ t: transactions, accountName: financialAccounts.name })
       .from(transactions)
+      .leftJoin(financialAccounts, eq(financialAccounts.id, transactions.accountId))
       .where(and(...conds))
       .orderBy(sql`abs(${transactions.amount}) desc`)
       .limit(limit);
-    return rows.map((t) => ({
+    return rows.map(({ t, accountName }) => ({
       date: t.date,
       amount: num(t.amount),
       name: t.name,
       merchant: t.merchantName,
+      account: accountName,
       category: t.category,
     }));
   },
