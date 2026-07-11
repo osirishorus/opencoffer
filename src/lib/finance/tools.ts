@@ -181,8 +181,8 @@ const getRecentTransactions: FinanceTool = {
   schema: z
     .object({
       days: z.number().int().min(1).max(365),
-      accountId: z.string().uuid().nullable(),
-      category: z.string().nullable(),
+      accountId: z.string().uuid().nullish(),
+      category: z.string().nullish(),
       limit: z.number().int().min(1).max(500),
     })
     .strict(),
@@ -231,10 +231,10 @@ const searchTransactions: FinanceTool = {
   schema: z
     .object({
       query: z.string().min(1),
-      from: z.string().nullable(),
-      to: z.string().nullable(),
-      minAmount: z.number().nullable(),
-      maxAmount: z.number().nullable(),
+      from: z.string().nullish(),
+      to: z.string().nullish(),
+      minAmount: z.number().nullish(),
+      maxAmount: z.number().nullish(),
       limit: z.number().int().min(1).max(500),
     })
     .strict(),
@@ -332,7 +332,7 @@ const getSpendingByCategory: FinanceTool = {
 const getHoldings: FinanceTool = {
   name: "get_holdings",
   description: "Return investment holdings with current institution value and cost basis.",
-  schema: z.object({ accountId: z.string().uuid().nullable() }).strict(),
+  schema: z.object({ accountId: z.string().uuid().nullish() }).strict(),
   execute: async ({ accountId }, { userId }) => {
     const ids = await householdUserIds(userId);
     const conds = [inArray(holdings.userId, ids)];
@@ -1390,7 +1390,7 @@ const projectCashFlow: FinanceTool = {
   schema: z
     .object({
       days: z.number().int().min(7).max(180),
-      accountId: z.string().uuid().nullable(),
+      accountId: z.string().uuid().nullish(),
     })
     .strict(),
   execute: async ({ days, accountId }, { userId }) => {
@@ -1511,8 +1511,8 @@ const setTransactionCategory: FinanceTool = {
   schema: z
     .object({
       transactionId: z.string().uuid(),
-      category: z.string().min(1).max(64).nullable(),
-      subcategory: z.string().max(64).nullable(),
+      category: z.string().min(1).max(64).nullish(),
+      subcategory: z.string().max(64).nullish(),
     })
     .strict(),
   execute: async ({ transactionId, category, subcategory }, { userId }) => {
@@ -1537,7 +1537,7 @@ const bulkSetCategoryByMerchant: FinanceTool = {
     .object({
       matchSubstring: z.string().min(2).max(120),
       category: z.string().min(1).max(64),
-      subcategory: z.string().max(64).nullable(),
+      subcategory: z.string().max(64).nullish(),
     })
     .strict(),
   execute: async ({ matchSubstring, category, subcategory }, { userId }) => {
@@ -1644,7 +1644,7 @@ const remember: FinanceTool = {
   schema: z
     .object({
       content: z.string().min(2).max(2000),
-      key: z.string().min(1).max(80).nullable(),
+      key: z.string().min(1).max(80).nullish(),
       pinned: z.boolean(),
     })
     .strict(),
@@ -1677,7 +1677,7 @@ const recall: FinanceTool = {
     "Search the user's long-term memories. Pass a `query` substring to filter by content; pass null to list all (newest first, pinned first). Call this when the user references something they might have told you before, or when you want to personalize an answer.",
   schema: z
     .object({
-      query: z.string().nullable(),
+      query: z.string().nullish(),
       limit: z.number().int().min(1).max(50),
     })
     .strict(),
@@ -1721,8 +1721,8 @@ const forget: FinanceTool = {
     "Delete a saved memory by id or by key. Use when the user asks you to forget something, or to remove a stale fact. Provide exactly one of `id` or `key`.",
   schema: z
     .object({
-      id: z.string().uuid().nullable(),
-      key: z.string().min(1).max(80).nullable(),
+      id: z.string().uuid().nullish(),
+      key: z.string().min(1).max(80).nullish(),
     })
     .strict(),
   execute: async ({ id, key }, { userId }) => {
