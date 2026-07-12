@@ -107,13 +107,17 @@ export async function syncConnection(
 
     for (const t of a.transactions ?? []) {
       const isTransfer = isTransferTransaction(t, type);
+      // Pending transactions come with posted=0 — using it verbatim files them
+      // under 1970-01-01. Prefer transacted_at, then fall back to "now".
+      const postedSeconds = t.posted > 0 ? t.posted : (t.transacted_at ?? 0);
+      const txDate = postedSeconds > 0 ? new Date(postedSeconds * 1000) : new Date();
       const inserted = await db
         .insert(transactions)
         .values({
           accountId: acct.id,
           userId: conn.userId,
           externalTxId: t.id,
-          date: new Date(t.posted * 1000),
+          date: txDate,
           amount: t.amount,
           isoCurrencyCode: a.currency ?? "USD",
           name: t.description ?? t.payee ?? "(no description)",
@@ -127,6 +131,11 @@ export async function syncConnection(
         .onConflictDoUpdate({
           target: [transactions.accountId, transactions.externalTxId],
           set: {
+            // Include date so a pending row's placeholder date heals once the
+            // transaction actually posts (posted flips from 0 to real time)…
+            // …but only overwrite forward: never regress a real date to "now"
+            // for a still-pending row on every sync.
+            ...(postedSeconds > 0 ? { date: txDate } : {}),
             amount: t.amount,
             name: t.description ?? t.payee ?? "(no description)",
             merchantName: t.payee ?? null,

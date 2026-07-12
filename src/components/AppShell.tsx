@@ -4,13 +4,9 @@ import { Logo } from "@/components/Logo";
 import { MobileChrome } from "@/components/MobileNav";
 import { DrawerProvider } from "@/components/DrawerContext";
 import { DataAutoRefresh } from "@/components/DataAutoRefresh";
-import { DesktopNavLink } from "@/components/DesktopNavLink";
+import { DesktopNav } from "@/components/DesktopNav";
 import { ToasterProvider } from "@/components/Toaster";
 import { ConfirmProvider } from "@/components/ConfirmDialog";
-import {
-  WORKSPACE_NAV,
-  SETTINGS_NAV,
-} from "@/components/nav-config";
 
 async function signOutAction() {
   "use server";
@@ -41,19 +37,7 @@ export function AppShell({
           <Logo size={34} priority withWordmark />
         </Link>
 
-        <nav className="mt-8 flex flex-col gap-2">
-          <div className="overline px-3 pb-1">Workspace</div>
-          {WORKSPACE_NAV.map((n) => (
-            <DesktopNavLink key={n.href} {...n} />
-          ))}
-        </nav>
-
-        <nav className="mt-auto flex flex-col gap-2">
-          <div className="overline px-3 pb-1">Settings</div>
-          {SETTINGS_NAV.map((n) => (
-            <DesktopNavLink key={n.href} {...n} />
-          ))}
-        </nav>
+        <DesktopNav />
 
         <div className="mt-4 flex items-center gap-3 border-t border-outline-variant pt-4">
           <div

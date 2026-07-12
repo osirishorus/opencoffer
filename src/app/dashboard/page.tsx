@@ -42,9 +42,9 @@ export default async function Dashboard() {
     callTool<Array<{ id: string; name: string; source: string; type: string; subtype: string | null; currentBalance: number; mask: string | null; currency: string | null }>>(
       "get_accounts", {}, userId,
     ),
-    callTool<Array<{ id: string; date: Date | string; amount: number; name: string; merchant: string | null; category: string | null; pending: boolean; currency: string | null }>>(
+    callTool<{ transactions: Array<{ id: string; date: Date | string; amount: number; name: string; merchant: string | null; category: string | null; pending: boolean; currency: string | null }> }>(
       "get_recent_transactions", { days: 30, accountId: null, category: null, limit: 8 }, userId,
-    ),
+    ).then((r) => r.transactions),
   ]);
 
   if (accounts.length === 0 && netWorth.realAssetCount === 0) {

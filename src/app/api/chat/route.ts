@@ -178,7 +178,9 @@ export async function POST(req: Request) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     messages: body.messages as any,
     tools,
-    maxSteps: 6,
+    // 12 steps: multi-account investigations (e.g. per-card activity sweeps
+    // across a dozen accounts) legitimately need more than 6 tool rounds.
+    maxSteps: 12,
     onError: ({ error }) => {
       const e = error as {
         name?: string; message?: string; statusCode?: number; url?: string;

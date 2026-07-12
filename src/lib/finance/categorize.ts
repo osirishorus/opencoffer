@@ -275,7 +275,7 @@ ${JSON.stringify(txJson, null, 2)}
 `;
 }
 
-function parseVerdicts(raw: string): Verdict[] {
+export function parseVerdicts(raw: string): Verdict[] {
   // Strip possible markdown fences and any leading prose.
   let s = raw.trim();
   const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/);

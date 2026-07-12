@@ -71,6 +71,11 @@ function zodToJsonSchema(s: z.ZodTypeAny): Record<string, unknown> {
       };
     case "ZodOptional":
       return zodToJsonSchema((s as unknown as z.ZodOptional<z.ZodTypeAny>).unwrap());
+    case "ZodNullable":
+      // Advertise the inner type; the validator accepts null (and, for
+      // nullish fields, omission), so clients get a real type hint instead
+      // of an empty {} schema.
+      return zodToJsonSchema((s as unknown as z.ZodNullable<z.ZodTypeAny>).unwrap());
     case "ZodDefault":
       return zodToJsonSchema(
         (s as unknown as z.ZodDefault<z.ZodTypeAny>).removeDefault(),
@@ -141,6 +146,14 @@ export async function handleMcpRequest(
     case "tools/list":
       return ok({ tools: TOOL_LIST });
 
+    // We expose no resources or prompts, but some clients probe these
+    // endpoints regardless of declared capabilities — empty lists keep
+    // them quiet instead of surfacing "method not found" warnings.
+    case "resources/list":
+      return ok({ resources: [] });
+    case "prompts/list":
+      return ok({ prompts: [] });
+
     case "tools/call": {
       const params = msg.params as { name?: string; arguments?: unknown } | undefined;
       const name = params?.name;
@@ -160,9 +173,17 @@ export async function handleMcpRequest(
           target: name,
           meta: { args: parsed.data },
         });
+        // Spec: structuredContent must be a JSON object. Many tools return
+        // arrays — strict clients (e.g. the Python MCP SDK) reject the whole
+        // response if we put an array here, so omit it and rely on the text
+        // block, which always carries the full JSON.
+        const structured =
+          result && typeof result === "object" && !Array.isArray(result)
+            ? { structuredContent: result as Record<string, unknown> }
+            : {};
         return ok({
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-          structuredContent: result,
+          ...structured,
         });
       } catch (e) {
         return err(-32000, e instanceof Error ? e.message : "tool execution failed");

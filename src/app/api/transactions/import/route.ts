@@ -1,31 +1,11 @@
-import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
-import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/lib/db/client";
 import { financialAccounts, transactions } from "@/lib/db/schema";
 import { snapshotNetWorthForUser } from "@/lib/finance/netWorthSnapshot";
-
-const importRowSchema = z.object({
-  date: z.string().refine((value) => !Number.isNaN(Date.parse(value)), "Invalid date"),
-  amount: z.number().finite(),
-  name: z.string().trim().min(1).max(500),
-  merchant: z.string().trim().max(120).nullable().optional(),
-  category: z.string().trim().max(120).nullable().optional(),
-  subcategory: z.string().trim().max(120).nullable().optional(),
-});
-
-const importSchema = z.object({
-  accountId: z.string().uuid(),
-  rows: z.array(importRowSchema).min(1).max(5000),
-});
-
-function externalId(row: z.infer<typeof importRowSchema>) {
-  const key = `${row.date}|${row.amount}|${row.name.trim()}`;
-  return `csv_${createHash("sha256").update(key).digest("hex")}`;
-}
+import { deriveImportIsTransfer, externalId, importSchema } from "@/lib/finance/importRows";
 
 function revalidateTransactionPaths() {
   revalidatePath("/dashboard");
@@ -44,6 +24,7 @@ export async function POST(req: Request) {
     .select({
       id: financialAccounts.id,
       currency: financialAccounts.isoCurrencyCode,
+      type: financialAccounts.type,
     })
     .from(financialAccounts)
     .where(and(eq(financialAccounts.id, parsed.data.accountId), eq(financialAccounts.userId, session.user.id)))
@@ -66,6 +47,10 @@ export async function POST(req: Request) {
         merchantName: row.merchant?.trim() || null,
         category: row.category?.trim() || null,
         subcategory: row.subcategory?.trim() || null,
+        memo: row.memo?.trim() || null,
+        // Same deterministic heuristic the SimpleFIN sync applies at ingest,
+        // so backfilled CC payments/autopay rows are transfers immediately.
+        isTransfer: deriveImportIsTransfer(row, account.type),
         pending: false,
       })
       .onConflictDoNothing({

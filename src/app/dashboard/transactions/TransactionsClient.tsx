@@ -361,7 +361,7 @@ export function TransactionsClient({
   );
 }
 
-type MappingKey = "date" | "amount" | "name" | "merchant" | "category" | "subcategory";
+type MappingKey = "date" | "amount" | "name" | "merchant" | "category" | "subcategory" | "reference" | "memo";
 type SignConvention = "negative-outflow" | "positive-outflow";
 type DateHint = "auto" | "ymd" | "mdy" | "dmy";
 
@@ -373,6 +373,8 @@ function guessMapping(headers: string[]): Record<MappingKey, string> {
     merchant: findHeader(headers, ["merchant", "payee"]),
     category: findHeader(headers, ["category", "type"]),
     subcategory: findHeader(headers, ["subcategory", "sub-category"]),
+    reference: findHeader(headers, ["reference", "ref", "reference number", "transaction id", "fitid"]),
+    memo: findHeader(headers, ["memo", "notes", "note"]),
   };
 }
 
@@ -398,6 +400,8 @@ function buildImportRows(
   const merchantIndex = headers.indexOf(mapping.merchant);
   const categoryIndex = headers.indexOf(mapping.category);
   const subcategoryIndex = headers.indexOf(mapping.subcategory);
+  const referenceIndex = headers.indexOf(mapping.reference);
+  const memoIndex = headers.indexOf(mapping.memo);
 
   if (dateIndex < 0 || amountIndex < 0 || nameIndex < 0) return [];
 
@@ -413,6 +417,8 @@ function buildImportRows(
       merchant: merchantIndex >= 0 ? row[merchantIndex]?.trim() || null : null,
       category: categoryIndex >= 0 ? row[categoryIndex]?.trim() || null : null,
       subcategory: subcategoryIndex >= 0 ? row[subcategoryIndex]?.trim() || null : null,
+      reference: referenceIndex >= 0 ? row[referenceIndex]?.trim() || null : null,
+      memo: memoIndex >= 0 ? row[memoIndex]?.trim() || null : null,
     }];
   });
 }
@@ -476,6 +482,8 @@ function ImportPanel({
     merchant: "",
     category: "",
     subcategory: "",
+    reference: "",
+    memo: "",
   });
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
   const [signConvention, setSignConvention] = useState<SignConvention>("negative-outflow");
@@ -549,7 +557,7 @@ function ImportPanel({
       {headers.length > 0 && (
         <>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-6">
-            {(["date", "amount", "name", "merchant", "category", "subcategory"] as MappingKey[]).map((key) => (
+            {(["date", "amount", "name", "merchant", "category", "subcategory", "reference", "memo"] as MappingKey[]).map((key) => (
               <label key={key} className="block">
                 <span className="overline capitalize">{key}</span>
                 <select

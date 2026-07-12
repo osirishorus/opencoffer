@@ -21,13 +21,16 @@ export function NotificationsClient({ initial }: { initial: Channel[] }) {
   const confirm = useConfirm();
   const toast = useToast();
   const [channels, setChannels] = useState(initial);
-  const [form, setForm] = useState({
+  const emptyForm = {
     kind: "ntfy",
     label: "",
     url: "",
     topic: "",
     authToken: "",
-  });
+    userKey: "",
+    digest: false,
+  };
+  const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
 
@@ -46,7 +49,7 @@ export function NotificationsClient({ initial }: { initial: Channel[] }) {
     }
     const created = await r.json();
     setChannels((cs) => [created, ...cs]);
-    setForm({ kind: "ntfy", label: "", url: "", topic: "", authToken: "" });
+    setForm(emptyForm);
     toast.success("Notification channel added");
   };
 
@@ -101,8 +104,10 @@ export function NotificationsClient({ initial }: { initial: Channel[] }) {
     toast.success("Channel deleted");
   };
 
+  const isPushover = form.kind === "pushover";
   const needsTopic = form.kind === "ntfy";
   const needsToken = form.kind === "ntfy";
+  const needsUrl = !isPushover;
 
   return (
     <div className="space-y-8">
@@ -186,6 +191,7 @@ export function NotificationsClient({ initial }: { initial: Channel[] }) {
               className="tf-input appearance-none pr-10"
             >
               <option value="ntfy">ntfy</option>
+              <option value="pushover">Pushover</option>
               <option value="discord">Discord</option>
               <option value="slack">Slack</option>
               <option value="webhook">Webhook</option>
@@ -203,18 +209,47 @@ export function NotificationsClient({ initial }: { initial: Channel[] }) {
             />
             <label htmlFor="label" className="tf-label">Label</label>
           </div>
-          <div className="tf md:col-span-2">
-            <input
-              id="url"
-              required
-              type="url"
-              value={form.url}
-              onChange={(e) => setForm({ ...form, url: e.target.value })}
-              placeholder=" "
-              className="tf-input"
-            />
-            <label htmlFor="url" className="tf-label">URL</label>
-          </div>
+          {needsUrl && (
+            <div className="tf md:col-span-2">
+              <input
+                id="url"
+                required
+                type="url"
+                value={form.url}
+                onChange={(e) => setForm({ ...form, url: e.target.value })}
+                placeholder=" "
+                className="tf-input"
+              />
+              <label htmlFor="url" className="tf-label">URL</label>
+            </div>
+          )}
+          {isPushover && (
+            <>
+              <div className="tf">
+                <input
+                  id="pushoverToken"
+                  required
+                  type="password"
+                  value={form.authToken}
+                  onChange={(e) => setForm({ ...form, authToken: e.target.value })}
+                  placeholder=" "
+                  className="tf-input"
+                />
+                <label htmlFor="pushoverToken" className="tf-label">Application token</label>
+              </div>
+              <div className="tf">
+                <input
+                  id="pushoverUser"
+                  required
+                  value={form.userKey}
+                  onChange={(e) => setForm({ ...form, userKey: e.target.value })}
+                  placeholder=" "
+                  className="tf-input"
+                />
+                <label htmlFor="pushoverUser" className="tf-label">User key</label>
+              </div>
+            </>
+          )}
           {needsTopic && (
             <div className="tf">
               <input
@@ -240,6 +275,17 @@ export function NotificationsClient({ initial }: { initial: Channel[] }) {
               <label htmlFor="token" className="tf-label">Auth token</label>
             </div>
           )}
+          <label className="flex items-center gap-3 md:col-span-2">
+            <input
+              type="checkbox"
+              checked={form.digest}
+              onChange={(e) => setForm({ ...form, digest: e.target.checked })}
+              className="h-4 w-4"
+            />
+            <span className="body-m text-on-surface-variant">
+              Also send scheduled digest summaries to this channel
+            </span>
+          </label>
           <div className="md:col-span-2">
             <button type="submit" disabled={saving} className="btn btn-filled">
               <Plus size={18} strokeWidth={2} />

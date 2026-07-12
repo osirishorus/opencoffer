@@ -19,7 +19,9 @@
 
 export type SFTransaction = {
   id: string;
-  posted: number; // unix seconds
+  posted: number; // unix seconds; 0 when the transaction is still pending
+  /** Unix seconds the transaction occurred — often the only usable date on pending rows. */
+  transacted_at?: number;
   amount: string; // signed; negative = outflow, positive = inflow
   description: string;
   payee?: string;

@@ -12,11 +12,21 @@ coverage/
 
 # Local environment & secrets
 .env
+.env.*
 .env.local
 .env.*.local
 *.local
 !.env.example
 docker-compose.override.yml
+
+# Financial data — statements, exports, backfill files, DB dumps must
+# never be committed. Keep import CSVs outside the repo or in /import.
+*.csv
+*.ofx
+*.qfx
+*.dump
+/import/
+/backups/
 
 # Local data
 /data/

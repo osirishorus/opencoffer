@@ -57,7 +57,7 @@ export function effectiveCategorySQL() {
   return sql<string>`coalesce(${transactions.overrideCategory}, ${transactions.aiCategory}, ${transactions.category}, 'Uncategorized')`;
 }
 
-function effectiveIsTransferSQL() {
+export function effectiveIsTransferSQL() {
   return sql<boolean>`coalesce(${transactions.overrideIsTransfer}, ${transactions.isTransfer}, false)`;
 }
 
@@ -177,18 +177,23 @@ const getAccounts: FinanceTool = {
 const getRecentTransactions: FinanceTool = {
   name: "get_recent_transactions",
   description:
-    "Return recent transactions for the user, optionally filtered by account, category, or a day window. Pass null for accountId/category to skip filter. Use days=30, limit=200 as sensible defaults.",
+    "Return transactions, newest first. Window: trailing `days` (default 30), or explicit `from`/`to` dates (YYYY-MM-DD, inclusive) which take precedence over `days` and can reach any age. Optional account/category filters. Response is {total, returned, offset, truncated, transactions}; when truncated=true there are more rows — call again with offset += limit to page through the full set.",
   schema: z
     .object({
-      days: z.number().int().min(1).max(365),
-      accountId: z.string().uuid().nullable(),
-      category: z.string().nullable(),
+      days: z.number().int().min(1).max(3650).nullish(),
+      from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
+      to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
+      accountId: z.string().uuid().nullish(),
+      category: z.string().nullish(),
       limit: z.number().int().min(1).max(500),
+      offset: z.number().int().min(0).nullish(),
     })
     .strict(),
-  execute: async ({ days, accountId, category, limit }, { userId }) => {
+  execute: async ({ days, from, to, accountId, category, limit, offset }, { userId }) => {
     const ids = await householdUserIds(userId);
-    const conds = [inArray(transactions.userId, ids), gte(transactions.date, daysAgo(days))];
+    const start = from ? new Date(`${from}T00:00:00.000Z`) : daysAgo(days ?? 30);
+    const conds = [inArray(transactions.userId, ids), gte(transactions.date, start)];
+    if (to) conds.push(lte(transactions.date, new Date(`${to}T23:59:59.999Z`)));
     if (accountId) conds.push(eq(transactions.accountId, accountId));
     if (category) {
       // Match against the same visible category precedence used in charts,
@@ -200,18 +205,27 @@ const getRecentTransactions: FinanceTool = {
              or coalesce(${transactions.aiSubcategory},'') ilike ${`%${category}%`})`,
       );
     }
-    const rows = await db
-      .select()
+    const skip = offset ?? 0;
+    const [{ total }] = await db
+      .select({ total: sql<number>`count(*)::int` })
       .from(transactions)
+      .where(and(...conds));
+    const rows = await db
+      .select({ t: transactions, accountName: financialAccounts.name })
+      .from(transactions)
+      .leftJoin(financialAccounts, eq(financialAccounts.id, transactions.accountId))
       .where(and(...conds))
       .orderBy(desc(transactions.date))
-      .limit(limit);
-    return rows.map((t) => ({
+      .limit(limit)
+      .offset(skip);
+    const mapped = rows.map(({ t, accountName }) => ({
       id: t.id,
       date: t.date,
       amount: num(t.amount),
       name: t.name,
       merchant: t.overrideMerchant ?? t.merchantName,
+      account: accountName,
+      accountId: t.accountId,
       category: t.overrideCategory ?? t.aiCategory ?? t.category,
       subcategory: t.overrideSubcategory ?? t.aiSubcategory ?? t.subcategory,
       isTransfer: t.overrideIsTransfer ?? t.isTransfer,
@@ -221,47 +235,77 @@ const getRecentTransactions: FinanceTool = {
       pending: t.pending,
       currency: t.isoCurrencyCode,
     }));
+    return {
+      total,
+      returned: mapped.length,
+      offset: skip,
+      truncated: skip + mapped.length < total,
+      transactions: mapped,
+    };
   },
 };
 
 const searchTransactions: FinanceTool = {
   name: "search_transactions",
   description:
-    "Full-text search over transactions by merchant or description, with optional date (YYYY-MM-DD) and amount filters. Pass null to skip a filter. Use limit=100 as a sensible default.",
+    "Full-text search over transactions by merchant or description, with optional date (YYYY-MM-DD, inclusive) and amount filters. Amounts are SIGNED: spending is negative (a $20 purchase is -20), income positive — to find purchases between $10 and $50 use minAmount=-50, maxAmount=-10. Response is {total, returned, offset, truncated, transactions}; when truncated=true, page with offset += limit. Use limit=100 as a sensible default.",
   schema: z
     .object({
       query: z.string().min(1),
-      from: z.string().nullable(),
-      to: z.string().nullable(),
-      minAmount: z.number().nullable(),
-      maxAmount: z.number().nullable(),
+      from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
+      to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
+      minAmount: z.number().nullish(),
+      maxAmount: z.number().nullish(),
       limit: z.number().int().min(1).max(500),
+      offset: z.number().int().min(0).nullish(),
     })
     .strict(),
-  execute: async ({ query, from, to, minAmount, maxAmount, limit }, { userId }) => {
+  execute: async ({ query, from, to, minAmount, maxAmount, limit, offset }, { userId }) => {
     const ids = await householdUserIds(userId);
     const conds = [
       inArray(transactions.userId, ids),
-      or(ilike(transactions.name, `%${query}%`), ilike(transactions.merchantName, `%${query}%`))!,
+      or(
+        ilike(transactions.name, `%${query}%`),
+        ilike(transactions.merchantName, `%${query}%`),
+        ilike(transactions.overrideMerchant, `%${query}%`),
+      )!,
     ];
-    if (from) conds.push(gte(transactions.date, new Date(from)));
-    if (to) conds.push(lte(transactions.date, new Date(to)));
+    if (from) conds.push(gte(transactions.date, new Date(`${from}T00:00:00.000Z`)));
+    if (to) conds.push(lte(transactions.date, new Date(`${to}T23:59:59.999Z`)));
     if (minAmount != null) conds.push(gte(transactions.amount, String(minAmount)));
     if (maxAmount != null) conds.push(lte(transactions.amount, String(maxAmount)));
-    const rows = await db
-      .select()
+    const skip = offset ?? 0;
+    const [{ total }] = await db
+      .select({ total: sql<number>`count(*)::int` })
       .from(transactions)
+      .where(and(...conds));
+    const rows = await db
+      .select({ t: transactions, accountName: financialAccounts.name })
+      .from(transactions)
+      .leftJoin(financialAccounts, eq(financialAccounts.id, transactions.accountId))
       .where(and(...conds))
       .orderBy(desc(transactions.date))
-      .limit(limit);
-    return rows.map((t) => ({
+      .limit(limit)
+      .offset(skip);
+    const mapped = rows.map(({ t, accountName }) => ({
       id: t.id,
       date: t.date,
       amount: num(t.amount),
       name: t.name,
-      merchant: t.merchantName,
-      category: t.category,
+      merchant: t.overrideMerchant ?? t.merchantName,
+      account: accountName,
+      accountId: t.accountId,
+      category: t.overrideCategory ?? t.aiCategory ?? t.category,
+      isTransfer: t.overrideIsTransfer ?? t.isTransfer,
+      pending: t.pending,
     }));
+    return {
+      total,
+      returned: mapped.length,
+      offset: skip,
+      truncated: skip + mapped.length < total,
+      transactions: mapped,
+    };
   },
 };
 
@@ -332,7 +376,7 @@ const getSpendingByCategory: FinanceTool = {
 const getHoldings: FinanceTool = {
   name: "get_holdings",
   description: "Return investment holdings with current institution value and cost basis.",
-  schema: z.object({ accountId: z.string().uuid().nullable() }).strict(),
+  schema: z.object({ accountId: z.string().uuid().nullish() }).strict(),
   execute: async ({ accountId }, { userId }) => {
     const ids = await householdUserIds(userId);
     const conds = [inArray(holdings.userId, ids)];
@@ -375,7 +419,7 @@ const getRecurringMerchants: FinanceTool = {
     // most-common amount accounts for >=50% of all charges.
     const rows = await db
       .select({
-        merchant: transactions.merchantName,
+        merchant: sql<string | null>`coalesce(${transactions.overrideMerchant}, ${transactions.merchantName})`,
         name: transactions.name,
         month: sql<string>`to_char(date_trunc('month', ${transactions.date}), 'YYYY-MM')`,
         amount: transactions.amount,
@@ -444,16 +488,19 @@ const getNetWorth: FinanceTool = {
         .where(inArray(financialAccounts.userId, ids)),
       listRealAssetsForUser(userId),
     ]);
-    const assetsTypes = new Set(["depository", "investment"]);
-    const liabilityTypes = new Set(["credit", "loan"]);
+    // Classify by effective group (user override > system) so accounts the
+    // user re-grouped (e.g. a depository-typed card treated as 'credit')
+    // land on the right side of the ledger, consistent with
+    // get_balances_by_group and set_account_group's documented behavior.
+    const liabilityGroups = new Set(["credit", "loan"]);
     let assets = 0;
     let liabilities = 0;
     for (const a of rows) {
       const bal = num(a.currentBalance);
-      if (assetsTypes.has(a.type)) assets += bal;
       // Credit/loan balances are stored as negative numbers (you owe them).
       // Convert to positive "amount owed" for the user-facing liabilities figure.
-      else if (liabilityTypes.has(a.type)) liabilities += Math.abs(bal);
+      if (liabilityGroups.has(effectiveGroup(a))) liabilities += Math.abs(bal);
+      else assets += bal;
     }
     for (const asset of realAssetRows) {
       if (asset.status === "active" && asset.currentValue) assets += asset.currentValue.value;
@@ -487,10 +534,13 @@ const getTopMerchants: FinanceTool = {
       direction === "outflow"
         ? sql`${transactions.amount} < 0`
         : sql`${transactions.amount} > 0`;
-    const kindCond = direction === "outflow" ? spendKindWhere(kind) : sql`true`;
+    // Inflow = "real income": still exclude internal transfers, otherwise
+    // credit-card payments dominate the list as fake income sources.
+    const kindCond =
+      direction === "outflow" ? spendKindWhere(kind) : sql`${outflowKindSQL()} <> 'transfer'`;
     const rows = await db
       .select({
-        merchant: sql<string>`coalesce(${transactions.merchantName}, ${transactions.name})`,
+        merchant: sql<string>`coalesce(${transactions.overrideMerchant}, ${transactions.merchantName}, ${transactions.name})`,
         count: sql<number>`count(*)::int`,
         total: sql<string>`(abs(sum(${transactions.amount})))::text`,
         avg: sql<string>`(abs(avg(${transactions.amount})))::text`,
@@ -507,7 +557,7 @@ const getTopMerchants: FinanceTool = {
           kindCond,
         ),
       )
-      .groupBy(sql`coalesce(${transactions.merchantName}, ${transactions.name})`)
+      .groupBy(sql`coalesce(${transactions.overrideMerchant}, ${transactions.merchantName}, ${transactions.name})`)
       .orderBy(sql`abs(sum(${transactions.amount})) desc`)
       .limit(limit);
     return rows.map((r) => ({
@@ -538,22 +588,24 @@ const getLargestTransactions: FinanceTool = {
       inArray(transactions.userId, ids),
       gte(transactions.date, daysAgo(days)),
       eq(transactions.pending, false),
-          eq(transactions.isTransfer, false),
+      sql`${effectiveIsTransferSQL()} = false`,
     ];
     if (direction === "outflow") conds.push(sql`${transactions.amount} < 0`);
     if (direction === "inflow") conds.push(sql`${transactions.amount} > 0`);
     const rows = await db
-      .select()
+      .select({ t: transactions, accountName: financialAccounts.name })
       .from(transactions)
+      .leftJoin(financialAccounts, eq(financialAccounts.id, transactions.accountId))
       .where(and(...conds))
       .orderBy(sql`abs(${transactions.amount}) desc`)
       .limit(limit);
-    return rows.map((t) => ({
+    return rows.map(({ t, accountName }) => ({
       date: t.date,
       amount: num(t.amount),
       name: t.name,
-      merchant: t.merchantName,
-      category: t.category,
+      merchant: t.overrideMerchant ?? t.merchantName,
+      account: accountName,
+      category: t.overrideCategory ?? t.aiCategory ?? t.category,
     }));
   },
 };
@@ -587,7 +639,7 @@ const getCashFlow: FinanceTool = {
           inArray(transactions.userId, ids),
           gte(transactions.date, daysAgo(days)),
           eq(transactions.pending, false),
-          eq(transactions.isTransfer, false),
+          sql`${effectiveIsTransferSQL()} = false`,
         ),
       )
       .groupBy(period)
@@ -1390,7 +1442,7 @@ const projectCashFlow: FinanceTool = {
   schema: z
     .object({
       days: z.number().int().min(7).max(180),
-      accountId: z.string().uuid().nullable(),
+      accountId: z.string().uuid().nullish(),
     })
     .strict(),
   execute: async ({ days, accountId }, { userId }) => {
@@ -1511,8 +1563,8 @@ const setTransactionCategory: FinanceTool = {
   schema: z
     .object({
       transactionId: z.string().uuid(),
-      category: z.string().min(1).max(64).nullable(),
-      subcategory: z.string().max(64).nullable(),
+      category: z.string().min(1).max(64).nullish(),
+      subcategory: z.string().max(64).nullish(),
     })
     .strict(),
   execute: async ({ transactionId, category, subcategory }, { userId }) => {
@@ -1537,7 +1589,7 @@ const bulkSetCategoryByMerchant: FinanceTool = {
     .object({
       matchSubstring: z.string().min(2).max(120),
       category: z.string().min(1).max(64),
-      subcategory: z.string().max(64).nullable(),
+      subcategory: z.string().max(64).nullish(),
     })
     .strict(),
   execute: async ({ matchSubstring, category, subcategory }, { userId }) => {
@@ -1644,7 +1696,7 @@ const remember: FinanceTool = {
   schema: z
     .object({
       content: z.string().min(2).max(2000),
-      key: z.string().min(1).max(80).nullable(),
+      key: z.string().min(1).max(80).nullish(),
       pinned: z.boolean(),
     })
     .strict(),
@@ -1677,7 +1729,7 @@ const recall: FinanceTool = {
     "Search the user's long-term memories. Pass a `query` substring to filter by content; pass null to list all (newest first, pinned first). Call this when the user references something they might have told you before, or when you want to personalize an answer.",
   schema: z
     .object({
-      query: z.string().nullable(),
+      query: z.string().nullish(),
       limit: z.number().int().min(1).max(50),
     })
     .strict(),
@@ -1721,8 +1773,8 @@ const forget: FinanceTool = {
     "Delete a saved memory by id or by key. Use when the user asks you to forget something, or to remove a stale fact. Provide exactly one of `id` or `key`.",
   schema: z
     .object({
-      id: z.string().uuid().nullable(),
-      key: z.string().min(1).max(80).nullable(),
+      id: z.string().uuid().nullish(),
+      key: z.string().min(1).max(80).nullish(),
     })
     .strict(),
   execute: async ({ id, key }, { userId }) => {

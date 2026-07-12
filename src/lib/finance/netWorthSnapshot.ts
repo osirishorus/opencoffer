@@ -20,9 +20,11 @@ export async function snapshotNetWorthForUser(userId: string) {
   const byGroup: Record<string, number> = {};
   for (const a of rows) {
     const bal = Number(a.currentBalance ?? 0);
-    if (a.type === "depository" || a.type === "investment") assets += bal;
-    else if (a.type === "credit" || a.type === "loan") liabilities += Math.abs(bal);
     const g = a.userAccountGroup ?? a.accountGroup;
+    // Classify by effective group so user re-grouped accounts land on the
+    // right side of the ledger — same rule as the get_net_worth tool.
+    if (g === "credit" || g === "loan") liabilities += Math.abs(bal);
+    else assets += bal;
     byGroup[g] = (byGroup[g] ?? 0) + bal;
   }
   for (const asset of realAssetRows) {

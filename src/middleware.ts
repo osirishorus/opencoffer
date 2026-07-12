@@ -14,6 +14,7 @@ export default auth((req) => {
     pathname.startsWith("/register") ||
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/mcp") ||
+    pathname === "/api/health" ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
     /\.(png|jpg|jpeg|svg|webp|ico|gif|woff2?)$/i.test(pathname);

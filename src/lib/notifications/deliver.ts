@@ -3,12 +3,18 @@ import { db } from "@/lib/db/client";
 import { alerts, notificationChannels } from "@/lib/db/schema";
 import { decrypt } from "@/lib/crypto";
 
-export type NotificationKind = "ntfy" | "discord" | "slack" | "webhook";
+export type NotificationKind = "ntfy" | "discord" | "slack" | "webhook" | "pushover";
+
+export const PUSHOVER_API_URL = "https://api.pushover.net/1/messages.json";
 
 export type NotificationConfig = {
   url: string;
   topic?: string;
   authToken?: string;
+  /** Pushover recipient user (or group) key. */
+  userKey?: string;
+  /** Opt-in: also receive scheduled digest summaries on this channel. */
+  digest?: boolean;
 };
 
 export type NotificationAlert = {
@@ -61,6 +67,18 @@ export function buildNotificationRequest(
       body: JSON.stringify({ text }),
     };
   }
+  if (channel.kind === "pushover") {
+    return {
+      url: channel.config.url || PUSHOVER_API_URL,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        token: channel.config.authToken,
+        user: channel.config.userKey,
+        title: alert.title,
+        message: alert.body ?? alert.title,
+      }),
+    };
+  }
   return {
     url: channel.config.url,
     headers: { "content-type": "application/json" },
@@ -104,9 +122,11 @@ export async function deliverPendingAlerts(userId: string): Promise<{ alerts: nu
   let attempts = 0;
   for (const alert of pending) {
     for (const channel of channels) {
-      attempts++;
       try {
         const config = JSON.parse(decrypt(channel.configCipher)) as NotificationConfig;
+        // Digest summaries are per-channel opt-in; regular alerts go everywhere.
+        if (alert.kind === "digest" && config.digest !== true) continue;
+        attempts++;
         await sendNotificationRequest({
           ...buildNotificationRequest({ kind: channel.kind as NotificationKind, config }, alert),
         });
