@@ -29,6 +29,13 @@
       "when": 1783363200000,
       "tag": "0003_manual_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1783896394763,
+      "tag": "0004_confused_harry_osborn",
+      "breakpoints": true
     }
   ]
 }

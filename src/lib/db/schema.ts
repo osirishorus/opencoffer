@@ -165,6 +165,9 @@ export const financialAccounts = pgTable(
      *  treated as 'cash' for analysis). Null = use accountGroup. Set via the chat tool
      *  `set_account_group` or the Connections UI. */
     userAccountGroup: text("user_account_group"),
+    /** True once the user renames the account; sync then stops overwriting `name`
+     *  (the provider's name is kept in officialName so the rename can be reset). */
+    nameIsCustom: boolean("name_is_custom").notNull().default(false),
     currentBalance: numeric("current_balance", { precision: 19, scale: 4 }),
     availableBalance: numeric("available_balance", { precision: 19, scale: 4 }),
     isoCurrencyCode: text("iso_currency_code").default("USD"),

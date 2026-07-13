@@ -24,6 +24,7 @@ export default async function AccountsPage() {
       subtype: financialAccounts.subtype,
       systemGroup: financialAccounts.accountGroup,
       userOverride: financialAccounts.userAccountGroup,
+      nameIsCustom: financialAccounts.nameIsCustom,
       currentBalance: financialAccounts.currentBalance,
       currency: financialAccounts.isoCurrencyCode,
       source: financialAccounts.source,
@@ -36,7 +37,7 @@ export default async function AccountsPage() {
     <>
       <AppBar
         title="Accounts"
-        subtitle="Override the group each account is treated as"
+        subtitle="Rename accounts and override the group each is treated as"
       />
       <div className="space-y-6 p-4 pb-24 md:p-8 md:pb-8">
         <div className="card-elevated mfade mfade-1">

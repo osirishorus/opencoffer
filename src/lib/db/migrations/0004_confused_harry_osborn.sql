@@ -1,0 +1,1 @@
+ALTER TABLE "financial_accounts" ADD COLUMN "name_is_custom" boolean DEFAULT false NOT NULL;

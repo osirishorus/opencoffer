@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   connections,
@@ -81,7 +81,7 @@ export async function syncConnection(
         userId: conn.userId,
         externalAccountId: a.id,
         name: a.name,
-        officialName: null,
+        officialName: a.name,
         mask: null,
         type,
         subtype,
@@ -93,7 +93,9 @@ export async function syncConnection(
       .onConflictDoUpdate({
         target: [financialAccounts.connectionId, financialAccounts.externalAccountId],
         set: {
-          name: a.name,
+          // Preserve a user rename; keep the provider's current name in officialName.
+          name: sql`case when ${financialAccounts.nameIsCustom} then ${financialAccounts.name} else excluded.name end`,
+          officialName: a.name,
           type,
           subtype,
           accountGroup,

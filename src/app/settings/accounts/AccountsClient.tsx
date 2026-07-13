@@ -3,8 +3,8 @@
 import { FormEvent, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { formatCurrency } from "@/lib/utils";
-import { setAccountGroup } from "./actions";
-import { Check, RotateCcw, Loader2, Plus, Save, Trash2 } from "lucide-react";
+import { renameAccount, resetAccountName, setAccountGroup } from "./actions";
+import { Check, Pencil, RotateCcw, Loader2, Plus, Save, Trash2, X } from "lucide-react";
 import { useConfirm } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toaster";
 import { ACCOUNT_GROUPS, ACCOUNT_TYPES, type AccountGroup, type AccountType } from "@/lib/manualAccounts";
@@ -20,6 +20,7 @@ type Account = {
   subtype: string | null;
   systemGroup: string;
   userOverride: string | null;
+  nameIsCustom: boolean;
   currentBalance: number;
   currency: string | null;
   source: string;
@@ -276,12 +277,18 @@ function ManualAccountRow({
 }
 
 function AccountRow({ account }: { account: Account }) {
+  const toast = useToast();
   const effective = (account.userOverride ?? account.systemGroup) as AccountGroup;
   const [group, setGroup] = useState<AccountGroup>(effective);
   const [pending, startTransition] = useTransition();
   const [status, setStatus] = useState<"idle" | "saved" | "error">("idle");
   const overridden = account.userOverride != null;
 
+  const [name, setName] = useState(account.name);
+  const [nameIsCustom, setNameIsCustom] = useState(account.nameIsCustom);
+  const [editingName, setEditingName] = useState(false);
+  const [draftName, setDraftName] = useState(account.name);
+  const [savingName, setSavingName] = useState(false);
   function save(next: AccountGroup | "default") {
     setStatus("idle");
     startTransition(async () => {
@@ -298,18 +305,116 @@ function AccountRow({ account }: { account: Account }) {
     });
   }
 
+  async function saveName() {
+    const next = draftName.trim();
+    if (!next || next === name) {
+      setEditingName(false);
+      setDraftName(name);
+      return;
+    }
+    setSavingName(true);
+    try {
+      await renameAccount(account.id, next);
+      setName(next);
+      setNameIsCustom(true);
+      setEditingName(false);
+      toast.success("Account renamed");
+    } catch (e) {
+      console.error(e);
+      toast.error("Rename failed");
+    } finally {
+      setSavingName(false);
+    }
+  }
+
+  async function resetName() {
+    setSavingName(true);
+    try {
+      const r = await resetAccountName(account.id);
+      setName(r.name);
+      setDraftName(r.name);
+      setNameIsCustom(false);
+      setEditingName(false);
+      toast.success("Name reset", account.officialName ? undefined : "The bank's name is restored on next sync.");
+    } catch (e) {
+      console.error(e);
+      toast.error("Reset failed");
+    } finally {
+      setSavingName(false);
+    }
+  }
+
   return (
     <div className="flex flex-wrap items-center gap-4 p-4 md:p-5">
       <div className="min-w-0 flex-1">
-        <div className="body-m truncate text-on-surface">
-          {account.name}
-          {account.source === "manual" && <span className="badge ml-2">Manual</span>}
-          {account.mask && (
-            <span className="ml-2 font-mono text-xs text-on-surface-variant">
-              ··{account.mask}
-            </span>
-          )}
-        </div>
+        {editingName ? (
+          <form
+            className="flex items-center gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void saveName();
+            }}
+          >
+            <input
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+              className="tf h-9 max-w-xs"
+              maxLength={120}
+              autoFocus
+              disabled={savingName}
+              aria-label="Account name"
+            />
+            <button type="submit" disabled={savingName || !draftName.trim()} className="btn-icon" title="Save name">
+              {savingName ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} strokeWidth={2} />}
+            </button>
+            <button
+              type="button"
+              disabled={savingName}
+              onClick={() => {
+                setEditingName(false);
+                setDraftName(name);
+              }}
+              className="btn-icon"
+              title="Cancel"
+            >
+              <X size={16} strokeWidth={2} />
+            </button>
+          </form>
+        ) : (
+          <div className="body-m flex items-center gap-1 text-on-surface">
+            <span className="truncate">{name}</span>
+            {account.source === "manual" && <span className="badge ml-1">Manual</span>}
+            {account.mask && (
+              <span className="ml-1 font-mono text-xs text-on-surface-variant">
+                ··{account.mask}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setDraftName(name);
+                setEditingName(true);
+              }}
+              className="btn-icon shrink-0"
+              title="Rename account"
+              aria-label="Rename account"
+            >
+              <Pencil size={14} strokeWidth={1.75} />
+            </button>
+            {nameIsCustom && (
+              <button
+                type="button"
+                disabled={savingName}
+                onClick={() => void resetName()}
+                className="btn-icon shrink-0"
+                title={account.officialName ? `Reset to bank name (${account.officialName})` : "Reset to bank name"}
+                aria-label="Reset to bank name"
+              >
+                <RotateCcw size={14} strokeWidth={1.75} />
+              </button>
+            )}
+          </div>
+        )}
         <div className="body-s text-on-surface-variant">
           {account.type}
           {account.subtype ? ` · ${account.subtype}` : ""}
@@ -373,6 +478,7 @@ function toClientAccount(account: {
   subtype: string | null;
   accountGroup: string;
   userAccountGroup: string | null;
+  nameIsCustom?: boolean;
   currentBalance: string | number | null;
   isoCurrencyCode: string | null;
   source: string;
@@ -386,6 +492,7 @@ function toClientAccount(account: {
     subtype: account.subtype,
     systemGroup: account.accountGroup,
     userOverride: account.userAccountGroup,
+    nameIsCustom: account.nameIsCustom ?? false,
     currentBalance: Number(account.currentBalance ?? 0),
     currency: account.isoCurrencyCode,
     source: account.source,
