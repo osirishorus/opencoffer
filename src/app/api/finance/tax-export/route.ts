@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/lib/db/client";
 import { transactions, financialAccounts } from "@/lib/db/schema";
 import { effectiveCategorySQL } from "@/lib/finance/tools";
+import { householdUserIds } from "@/lib/household";
 
 /**
  * Download a CSV of tax-relevant transactions for a given tax year. Includes:
@@ -21,6 +22,9 @@ export async function GET(req: Request) {
   const end = new Date(`${year + 1}-01-01T00:00:00Z`);
 
   const effectiveCategory = effectiveCategorySQL();
+  // Household members file together and share accounts, so the tax CSV must
+  // cover the same scope the dashboard reports.
+  const ids = await householdUserIds(session.user.id);
   const rows = await db
     .select({
       date: transactions.date,
@@ -36,7 +40,7 @@ export async function GET(req: Request) {
     .leftJoin(financialAccounts, eq(financialAccounts.id, transactions.accountId))
     .where(
       and(
-        eq(transactions.userId, session.user.id),
+        inArray(transactions.userId, ids),
         gte(transactions.date, start),
         lte(transactions.date, end),
         sql`${effectiveCategory} IN

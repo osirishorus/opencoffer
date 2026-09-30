@@ -3,6 +3,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { tool, type LanguageModel } from "ai";
 import { decrypt } from "@/lib/crypto";
 import { financeTools } from "@/lib/finance/tools";
+import { sanitizeToolResult } from "@/lib/finance/sanitize";
 import type { LlmCredential } from "@/lib/db/schema";
 import {
   CHATGPT_BACKEND_BASE,
@@ -95,7 +96,10 @@ export function toAiSdkTools(userId: string) {
       tool({
         description: t.description,
         parameters: t.schema,
-        execute: (args) => t.execute(args, { userId }) as Promise<unknown>,
+        // Merchant names and memos are written by whoever sent the money, so
+        // tool output is untrusted text — scrub it before the model sees it.
+        execute: async (args) =>
+          sanitizeToolResult(await t.execute(args, { userId })) as unknown,
       }),
     ]),
   );

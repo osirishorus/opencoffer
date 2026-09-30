@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { fontClassNames } from "./fonts";
 import "./globals.css";
 
 export const viewport: Viewport = {
@@ -19,7 +20,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" data-theme="dark" suppressHydrationWarning>
+    <html lang="en" data-theme="dark" className={fontClassNames} suppressHydrationWarning>
       <head>
         <script
           dangerouslySetInnerHTML={{

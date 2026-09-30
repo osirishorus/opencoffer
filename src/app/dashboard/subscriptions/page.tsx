@@ -1,7 +1,8 @@
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { findTool } from "@/lib/finance/tools";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
+import { Amount } from "@/components/Amount";
 import { DataTable, Th, Td, Tr, Thead } from "@/components/DataTable";
 import { AppBar } from "@/components/AppBar";
 
@@ -32,11 +33,11 @@ export default async function SubscriptionsPage() {
       <div className="space-y-6 p-4 pb-24 md:p-8 md:pb-8">
         <div className="card-elevated mfade mfade-1 flex items-baseline justify-between">
           <div>
-            <div className="overline">Estimated monthly</div>
-            <div className="figure mt-3 text-[56px]">{formatCurrency(monthlyEstimate)}</div>
+            <div className="eyebrow">Estimated monthly</div>
+            <div className="figure mt-3 text-[56px]"><Amount value={monthlyEstimate} /></div>
           </div>
           <div className="text-right">
-            <div className="overline">Merchants detected</div>
+            <div className="eyebrow">Merchants detected</div>
             <div className="figure mt-3 text-[40px]">{rows.length}</div>
           </div>
         </div>
@@ -59,7 +60,7 @@ export default async function SubscriptionsPage() {
                 <Td align="right" mono>{r.totalCharges}</Td>
                 <Td mono className="text-on-surface-variant">{formatDate(r.lastDate)}</Td>
                 <Td align="right" mono>
-                  {formatCurrency(r.typicalAmount)}
+                  <Amount value={r.typicalAmount} />
                 </Td>
               </Tr>
             ))}

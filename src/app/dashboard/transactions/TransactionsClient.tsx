@@ -1,10 +1,22 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DataTable, Th, Td, Tr, Thead } from "@/components/DataTable";
-import { formatCurrency, formatDate } from "@/lib/utils";
-import { Download, Pencil, Plus, Search, Trash2, Upload, Wand2 } from "lucide-react";
+import { formatDate } from "@/lib/utils";
+import { Amount } from "@/components/Amount";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  Upload,
+  Wand2,
+  X,
+} from "lucide-react";
 import { useConfirm } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toaster";
 import { parseCsv } from "@/lib/csv";
@@ -62,48 +74,99 @@ const CATEGORIES = [
   "Income — Salary", "Income — Dividend", "Income — Refund", "Income — Other",
   "Transfer", "Other",
 ];
-const INITIAL_VISIBLE = 40;
-const VISIBLE_STEP = 40;
+export type Filters = {
+  search: string;
+  accountId: string;
+  category: string;
+  startDate: string;
+  endDate: string;
+};
+
+const SEARCH_DEBOUNCE_MS = 350;
 
 export function TransactionsClient({
   rows,
   initialRules,
   accounts,
+  filters,
+  page,
+  pageCount,
+  total,
 }: {
   rows: Row[];
   initialRules: Rule[];
   accounts: AccountOption[];
+  filters: Filters;
+  page: number;
+  pageCount: number;
+  total: number;
 }) {
   const router = useRouter();
   const confirm = useConfirm();
   const toast = useToast();
-  const [filter, setFilter] = useState("");
-  const deferredFilter = useDeferredValue(filter);
-  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
   const [editing, setEditing] = useState<Row | null>(null);
   const [ruleSource, setRuleSource] = useState<Row | null>(null);
   const [showImport, setShowImport] = useState(false);
   const [items, setItems] = useState(rows);
   const [rules, setRules] = useState(initialRules);
-  const exportHref = useMemo(() => {
-    const params = new URLSearchParams();
-    if (filter.trim()) params.set("search", filter.trim());
-    return `/api/transactions/export${params.toString() ? `?${params.toString()}` : ""}`;
-  }, [filter]);
 
-  const filtered = useMemo(() => {
-    if (!deferredFilter) return items;
-    const f = deferredFilter.toLowerCase();
-    return items.filter(
-      (r) =>
-        (r.merchant ?? r.name ?? "").toLowerCase().includes(f) ||
-        (r.overrideCategory ?? r.aiCategory ?? r.category ?? "").toLowerCase().includes(f) ||
-        (r.accountName ?? "").toLowerCase().includes(f),
-    );
-  }, [items, deferredFilter]);
-  useEffect(() => setVisibleCount(INITIAL_VISIBLE), [deferredFilter]);
-  const visible = filtered.slice(0, visibleCount);
-  const canLoadMore = visibleCount < filtered.length;
+  // Rows are paged on the server, so re-sync whenever a new page arrives.
+  useEffect(() => setItems(rows), [rows]);
+
+  // Search box is local for responsiveness, then pushed to the URL on a debounce
+  // so the server can do the actual filtering across the full history.
+  const [searchDraft, setSearchDraft] = useState(filters.search);
+  useEffect(() => setSearchDraft(filters.search), [filters.search]);
+
+  const queryFor = useMemo(
+    () => (next: Partial<Filters & { page: number }>) => {
+      const merged = { ...filters, page, ...next };
+      const params = new URLSearchParams();
+      if (merged.search.trim()) params.set("q", merged.search.trim());
+      if (merged.accountId) params.set("accountId", merged.accountId);
+      if (merged.category) params.set("category", merged.category);
+      if (merged.startDate) params.set("startDate", merged.startDate);
+      if (merged.endDate) params.set("endDate", merged.endDate);
+      // Any filter change resets to page 1 unless the caller asked for a page.
+      const resetPage = next.page === undefined && Object.keys(next).length > 0;
+      const target = resetPage ? 1 : merged.page;
+      if (target > 1) params.set("page", String(target));
+      return params;
+    },
+    [filters, page],
+  );
+
+  const applyFilters = useMemo(
+    () => (next: Partial<Filters & { page: number }>) => {
+      const params = queryFor(next);
+      const qs = params.toString();
+      router.push(qs ? `/dashboard/transactions?${qs}` : "/dashboard/transactions", {
+        scroll: false,
+      });
+    },
+    [queryFor, router],
+  );
+
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onSearchChange = (value: string) => {
+    setSearchDraft(value);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => applyFilters({ search: value }), SEARCH_DEBOUNCE_MS);
+  };
+  useEffect(() => () => {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+  }, []);
+
+  const exportHref = useMemo(() => {
+    const params = queryFor({});
+    params.delete("page");
+    const qs = params.toString();
+    return `/api/transactions/export${qs ? `?${qs}` : ""}`;
+  }, [queryFor]);
+
+  const hasFilters = Boolean(
+    filters.search || filters.accountId || filters.category || filters.startDate || filters.endDate,
+  );
 
   const toggleRule = async (rule: Rule) => {
     const r = await fetch(`/api/rules/${rule.id}`, {
@@ -190,27 +253,111 @@ export function TransactionsClient({
         </details>
       </section>
 
-      <div className="flex items-center gap-3">
-        <div className="relative max-w-md flex-1">
-          <Search
-            size={16}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant"
-          />
-          <input
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="Filter by merchant, category, account…"
-            className="tf pl-9"
-          />
+      <div className="space-y-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="relative flex-1">
+            <Search
+              size={16}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant"
+            />
+            <input
+              value={searchDraft}
+              onChange={(e) => onSearchChange(e.target.value)}
+              placeholder="Search all transactions — merchant, note, category, account…"
+              aria-label="Search transactions"
+              className="tf pl-9"
+            />
+          </div>
+          <div className="flex gap-3">
+            <a href={exportHref} className="btn btn-outlined flex-1 sm:flex-none">
+              <Download size={16} strokeWidth={2} />
+              Export CSV
+            </a>
+            <button
+              type="button"
+              onClick={() => setShowImport((value) => !value)}
+              className="btn btn-filled flex-1 sm:flex-none"
+            >
+              <Upload size={16} strokeWidth={2} />
+              Import CSV
+            </button>
+          </div>
         </div>
-        <a href={exportHref} className="btn btn-outlined">
-          <Download size={16} strokeWidth={2} />
-          Export CSV
-        </a>
-        <button type="button" onClick={() => setShowImport((value) => !value)} className="btn btn-filled">
-          <Upload size={16} strokeWidth={2} />
-          Import CSV
-        </button>
+
+        <div className="flex flex-wrap items-center gap-3">
+          {/* `select.tf` / `input.tf` set width:100%, which out-specifies Tailwind's
+              w-auto — so each control gets a sized wrapper instead. */}
+          <div className="w-full sm:w-52">
+            <select
+              value={filters.accountId}
+              onChange={(e) => applyFilters({ accountId: e.target.value })}
+              aria-label="Filter by account"
+              className="tf"
+            >
+              <option value="">All accounts</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="w-full sm:w-52">
+            <select
+              value={filters.category}
+              onChange={(e) => applyFilters({ category: e.target.value })}
+              aria-label="Filter by category"
+              className="tf"
+            >
+              <option value="">All categories</option>
+              {CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+          <label className="flex flex-1 items-center gap-2 sm:flex-none">
+            <span className="body-s shrink-0 text-on-surface-variant">From</span>
+            <span className="block w-full sm:w-[10.5rem]">
+              <input
+                type="date"
+                value={filters.startDate}
+                onChange={(e) => applyFilters({ startDate: e.target.value })}
+                className="tf"
+              />
+            </span>
+          </label>
+          <label className="flex flex-1 items-center gap-2 sm:flex-none">
+            <span className="body-s shrink-0 text-on-surface-variant">To</span>
+            <span className="block w-full sm:w-[10.5rem]">
+              <input
+                type="date"
+                value={filters.endDate}
+                onChange={(e) => applyFilters({ endDate: e.target.value })}
+                className="tf"
+              />
+            </span>
+          </label>
+          {hasFilters && (
+            <button
+              type="button"
+              onClick={() =>
+                applyFilters({
+                  search: "",
+                  accountId: "",
+                  category: "",
+                  startDate: "",
+                  endDate: "",
+                })
+              }
+              className="btn btn-text"
+            >
+              <X size={16} strokeWidth={2} />
+              Clear
+            </button>
+          )}
+        </div>
       </div>
 
       {showImport && (
@@ -228,9 +375,9 @@ export function TransactionsClient({
       )}
 
       <div className="md:hidden">
-        {visible.length > 0 ? (
+        {items.length > 0 ? (
           <ul className="space-y-3">
-            {visible.map((r) => (
+            {items.map((r) => (
               <TransactionCard
                 key={r.id}
                 row={r}
@@ -259,7 +406,7 @@ export function TransactionsClient({
             </Tr>
           </Thead>
           <tbody>
-            {visible.map((r) => {
+            {items.map((r) => {
               const eff = effectiveCategory(r);
               const merch = effectiveMerchant(r);
               const xfer = effectiveTransfer(r);
@@ -285,8 +432,7 @@ export function TransactionsClient({
                     )}
                   </Td>
                   <Td align="right" mono className="text-on-surface">
-                    {amt > 0 ? "+" : amt < 0 ? "−" : ""}
-                    {formatCurrency(Math.abs(amt), r.currency ?? "USD")}
+                    <Amount value={amt} currency={r.currency} signed tone="flow" />
                   </Td>
                   <Td align="right">
                     <button
@@ -309,7 +455,7 @@ export function TransactionsClient({
                 </Tr>
               );
             })}
-            {filtered.length === 0 && (
+            {items.length === 0 && (
               <tr>
                 <td colSpan={6} className="body-m px-4 py-16 text-center text-on-surface-variant">
                   No transactions match.
@@ -320,19 +466,32 @@ export function TransactionsClient({
         </DataTable>
       </div>
 
-      {filtered.length > 0 && (
+      {total > 0 && (
         <div className="flex flex-col items-center justify-between gap-3 rounded-2xl bg-surface-low px-4 py-3 sm:flex-row">
           <div className="body-s text-on-surface-variant">
-            Showing {visible.length} of {filtered.length} transactions
+            {total.toLocaleString()} transaction{total === 1 ? "" : "s"} match
+            {total === 1 ? "es" : ""} · page {page} of {pageCount}
           </div>
-          {canLoadMore && (
+          <div className="flex items-center gap-2">
             <button
-              className="btn btn-outlined w-full sm:w-auto"
-              onClick={() => setVisibleCount((n) => n + VISIBLE_STEP)}
+              type="button"
+              className="btn btn-outlined"
+              disabled={page <= 1}
+              onClick={() => applyFilters({ page: page - 1 })}
             >
-              Load more
+              <ChevronLeft size={16} strokeWidth={2} />
+              Previous
             </button>
-          )}
+            <button
+              type="button"
+              className="btn btn-outlined"
+              disabled={page >= pageCount}
+              onClick={() => applyFilters({ page: page + 1 })}
+            >
+              Next
+              <ChevronRight size={16} strokeWidth={2} />
+            </button>
+          </div>
         </div>
       )}
 
@@ -531,11 +690,11 @@ function ImportPanel({
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
         <label className="block lg:col-span-2">
-          <span className="overline">CSV file</span>
+          <span className="eyebrow">CSV file</span>
           <input type="file" accept=".csv,text/csv" onChange={(event) => loadFile(event.target.files?.[0] ?? null)} className="tf" />
         </label>
         <label className="block lg:col-span-2">
-          <span className="overline">Target account</span>
+          <span className="eyebrow">Target account</span>
           <select value={accountId} onChange={(event) => setAccountId(event.target.value)} className="tf">
             {accounts.map((account) => (
               <option key={account.id} value={account.id}>
@@ -551,7 +710,7 @@ function ImportPanel({
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-6">
             {(["date", "amount", "name", "merchant", "category", "subcategory"] as MappingKey[]).map((key) => (
               <label key={key} className="block">
-                <span className="overline capitalize">{key}</span>
+                <span className="eyebrow capitalize">{key}</span>
                 <select
                   value={mapping[key]}
                   onChange={(event) => setMapping((current) => ({ ...current, [key]: event.target.value }))}
@@ -568,14 +727,14 @@ function ImportPanel({
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <label className="block">
-              <span className="overline">Sign convention</span>
+              <span className="eyebrow">Sign convention</span>
               <select value={signConvention} onChange={(event) => setSignConvention(event.target.value as SignConvention)} className="tf">
                 <option value="negative-outflow">Negative = outflow</option>
                 <option value="positive-outflow">Positive = outflow</option>
               </select>
             </label>
             <label className="block">
-              <span className="overline">Date format</span>
+              <span className="eyebrow">Date format</span>
               <select value={dateHint} onChange={(event) => setDateHint(event.target.value as DateHint)} className="tf">
                 <option value="auto">Auto</option>
                 <option value="ymd">YYYY-MM-DD</option>
@@ -683,8 +842,7 @@ function TransactionCard({
         </div>
         <div className="shrink-0 text-right">
           <div className={`title-m font-mono tabular-nums ${amountClass}`}>
-            {amt > 0 ? "+" : amt < 0 ? "−" : ""}
-            {formatCurrency(Math.abs(amt), row.currency ?? "USD")}
+            <Amount value={amt} currency={row.currency} signed />
           </div>
           <div className="mt-1 flex justify-end gap-1">
             <button onClick={onCreateRule} className="btn-icon" aria-label={`Create rule for ${effectiveMerchant(row)}`}>
@@ -763,14 +921,14 @@ function RuleModal({
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="block">
-            <span className="overline">Field</span>
+            <span className="eyebrow">Field</span>
             <select value={field} onChange={(e) => setField(e.target.value as "merchant" | "name")} className="tf">
               <option value="merchant">Merchant</option>
               <option value="name">Name</option>
             </select>
           </label>
           <label className="block">
-            <span className="overline">Match</span>
+            <span className="eyebrow">Match</span>
             <select
               value={matchType}
               onChange={(e) => setMatchType(e.target.value as "contains" | "equals")}
@@ -781,11 +939,11 @@ function RuleModal({
             </select>
           </label>
           <label className="block sm:col-span-2">
-            <span className="overline">Pattern</span>
+            <span className="eyebrow">Pattern</span>
             <input value={pattern} onChange={(e) => setPattern(e.target.value)} className="tf" />
           </label>
           <label className="block">
-            <span className="overline">Category</span>
+            <span className="eyebrow">Category</span>
             <input
               list="rule-cats"
               value={category}
@@ -797,7 +955,7 @@ function RuleModal({
             </datalist>
           </label>
           <label className="block">
-            <span className="overline">Subcategory</span>
+            <span className="eyebrow">Subcategory</span>
             <input value={subcategory} onChange={(e) => setSubcategory(e.target.value)} className="tf" />
           </label>
           <label className="flex items-center gap-2 sm:col-span-2">
@@ -869,7 +1027,7 @@ function EditModal({
 
         <div className="grid grid-cols-1 gap-3">
           <label className="block">
-            <span className="overline">Category</span>
+            <span className="eyebrow">Category</span>
             <input
               list="cats"
               value={cat}
@@ -881,15 +1039,15 @@ function EditModal({
             </datalist>
           </label>
           <label className="block">
-            <span className="overline">Subcategory</span>
+            <span className="eyebrow">Subcategory</span>
             <input value={sub} onChange={(e) => setSub(e.target.value)} className="tf" />
           </label>
           <label className="block">
-            <span className="overline">Merchant</span>
+            <span className="eyebrow">Merchant</span>
             <input value={merch} onChange={(e) => setMerch(e.target.value)} className="tf" />
           </label>
           <label className="block">
-            <span className="overline">Notes</span>
+            <span className="eyebrow">Notes</span>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}

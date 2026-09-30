@@ -135,6 +135,9 @@ All configuration lives in `.env` (Docker) or `.env.local` (dev). See [`.env.exa
 | `AUTO_DEV_API_KEY` | No | Vehicle comparable-listing estimates through Auto.dev |
 | `MARKETCHECK_API_KEY` | No | Optional direct vehicle valuation through MarketCheck; may incur provider data fees |
 | `OLLAMA_BASE_URL` | No | Pre-seeded base URL when using the bundled Ollama profile |
+| `ALLOW_DEV_IMPERSONATION` | No | **Dev only.** Set to `1` to enable header-based impersonation for E2E tests. Never set this on a reachable deployment |
+| `DEV_IMPERSONATE_SECRET` | No | Required (16+ chars) when impersonation is enabled — requests must present it as `x-dev-impersonate-secret` |
+| `DEV_IMPERSONATE_ALLOWED` | No | Comma-separated emails that may be impersonated |
 
 ### LLM setup
 
@@ -212,11 +215,19 @@ alerts              chart_data             category_fixes
 
 The LLM writes the commentary; finance totals come from deterministic database-backed tools. No hallucinated balances.
 
+### Token access levels
+
+Tokens are minted **read-only** by default. A read-only token cannot call the tools that change stored data (`set_transaction_category`, `bulk_set_category_by_merchant`, `run_categorization`, `set_account_group`, `remember`, `forget`) — the server rejects them and omits them from `tools/list` entirely, so a connected agent never sees they exist.
+
+Choose **Read & write** in Settings → MCP when you want an agent to be able to fix categories or keep long-term memories. Tokens created before access levels existed remain read-only; issue a new token if one of your agents needs write access.
+
 ## Security
 
 - SimpleFIN access URLs and LLM API keys are encrypted at rest with `APP_ENCRYPTION_KEY`.
-- MCP bearer tokens are stored as hashes — you see them once at creation.
+- MCP bearer tokens are stored as hashes — you see them once at creation — and are read-only unless you explicitly grant write access.
 - Dashboard and settings routes require Auth.js sessions; `/api/mcp` uses bearer auth instead of session cookies.
+- Failed logins are throttled per (email, source IP) so brute force is expensive without letting anyone lock you out of your own account.
+- Never set `ALLOW_DEV_IMPERSONATION` on a deployment anyone else can reach — it is a header-driven auth bypass meant only for local E2E runs.
 - Keep `NEXTAUTH_SECRET`, `APP_ENCRYPTION_KEY`, `.env`, database backups, and SimpleFIN setup/access URLs private.
 
 See [SECURITY.md](SECURITY.md) for the full policy and disclosure channel.

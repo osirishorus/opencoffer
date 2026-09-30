@@ -150,7 +150,7 @@ export function ChatChart({
 
   return (
     <div className="card mt-3 overflow-hidden p-5">
-      <div className="overline mb-1 text-on-surface-variant">{spec.title}</div>
+      <div className="eyebrow mb-1 text-on-surface-variant">{spec.title}</div>
       {spec.subtitle && <div className="title-s text-on-surface">{spec.subtitle}</div>}
       {spec.description && <p className="body-s mt-1 text-on-surface-variant">{spec.description}</p>}
       <ChartMetadata freshness={spec.freshness} />

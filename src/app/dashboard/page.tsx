@@ -2,7 +2,8 @@ import Link from "next/link";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { findTool } from "@/lib/finance/tools";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
+import { Amount } from "@/components/Amount";
 import { AppBar } from "@/components/AppBar";
 import { ArrowUpRight, Bot, Plus, Repeat, TrendingUp, PiggyBank } from "lucide-react";
 import { SpendingDrilldown } from "./SpendingDrilldown";
@@ -19,7 +20,7 @@ export default async function Dashboard() {
   if (!session?.user?.id) redirect("/login");
   const userId = session.user.id;
 
-  const [netWorth, recurring, spending, savingsDestinations, flow, accounts, recent] = await Promise.all([
+  const [netWorth, recurring, spending, savingsDestinations, flow, accounts, recent, netWorthHistory] = await Promise.all([
     callTool<{ assets: number; liabilities: number; netWorth: number; accountCount: number; realAssetCount: number }>(
       "get_net_worth", {}, userId,
     ),
@@ -44,6 +45,11 @@ export default async function Dashboard() {
     ),
     callTool<Array<{ id: string; date: Date | string; amount: number; name: string; merchant: string | null; category: string | null; pending: boolean; currency: string | null }>>(
       "get_recent_transactions", { days: 30, accountId: null, category: null, limit: 8 }, userId,
+    ),
+    // Real daily snapshots for the card's sparkline — nothing on this page is drawn
+    // from invented data.
+    callTool<{ _chart: { data: Array<{ date: string; net: number }> } }>(
+      "chart_net_worth_history", { days: 180 }, userId,
     ),
   ]);
 
@@ -82,6 +88,13 @@ export default async function Dashboard() {
       ? Math.round((totalSaved / flow90.income) * 1000) / 10
       : null;
 
+  const nwSeries = netWorthHistory._chart.data;
+  // Change since the oldest snapshot inside the last 30 days.
+  const cutoff30 = new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10);
+  const baseline = nwSeries.find((p) => p.date >= cutoff30) ?? nwSeries[0];
+  const nwDelta =
+    baseline && nwSeries.length > 1 ? netWorth.netWorth - baseline.net : null;
+
   return (
     <>
       <AppBar
@@ -108,7 +121,7 @@ export default async function Dashboard() {
       <div className="mx-auto max-w-6xl space-y-6 p-4 pb-28 md:space-y-8 md:p-8 md:pb-8">
         <section className="mfade mfade-1 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <div className="overline">Portfolio overview</div>
+            <div className="eyebrow">Portfolio overview</div>
             <h1 className="coffer-serif mt-2 text-3xl leading-tight text-on-surface md:text-4xl">
               OpenCoffer
             </h1>
@@ -121,17 +134,25 @@ export default async function Dashboard() {
 
         <section className="grid grid-cols-12 gap-4 md:gap-6">
           <div className="card-elevated coffer-card-hover relative col-span-12 min-h-[246px] overflow-hidden p-6 md:p-8 lg:col-span-8">
-            <NetWorthBackdrop />
+            <NetWorthBackdrop series={nwSeries} />
             <div className="relative z-10">
               <div className="body-m text-on-surface-variant">Net Worth</div>
               <div className="figure mt-2 text-[48px] leading-none text-on-surface sm:text-[64px] md:text-[88px]">
-                {formatCurrency(netWorth.netWorth)}
+                <Amount value={netWorth.netWorth} />
               </div>
+              {nwDelta != null && (
+                <div className="body-m mt-2">
+                  <span className={nwDelta >= 0 ? "text-success" : "text-error"}>
+                    {nwDelta >= 0 ? "▲" : "▼"} <Amount value={Math.abs(nwDelta)} />
+                  </span>
+                  <span className="ml-2 text-on-surface-variant">over the last 30 days</span>
+                </div>
+              )}
               <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-3 text-on-surface-variant md:mt-6">
-                <Stat label="Assets" value={formatCurrency(netWorth.assets)} tone="success" />
-                <Stat label="Debt" value={formatCurrency(netWorth.liabilities)} tone="error" />
+                <Stat label="Assets" value={<Amount value={netWorth.assets} />} tone="success" />
+                <Stat label="Debt" value={<Amount value={netWorth.liabilities} />} tone="error" />
                 <Stat label="Accounts" value={String(accounts.length)} tone="default" />
-                <Link href="/settings/connections" className="btn-text">
+                <Link href="/settings/connections" className="btn btn-text">
                   Manage <ArrowUpRight size={16} strokeWidth={2} />
                 </Link>
               </div>
@@ -156,14 +177,14 @@ export default async function Dashboard() {
               Icon={TrendingUp}
               tone="default"
               label="Income · 90d"
-              value={formatCurrency(flow90.income)}
-              sub={`spent ${formatCurrency(flow90.consumption)}, saved ${formatCurrency(totalSaved)}`}
+              value={<Amount value={flow90.income} />}
+              sub={<>spent <Amount value={flow90.consumption} />, saved <Amount value={totalSaved} /></>}
             />
             <MiniCard
               Icon={Repeat}
               tone="default"
               label="Recurring spend (detected)"
-              value={formatCurrency(monthlyRecurringTotal)}
+              value={<Amount value={monthlyRecurringTotal} />}
               sub={`${recurring.length} merchants seen 2+ months`}
             />
           </div>
@@ -171,7 +192,7 @@ export default async function Dashboard() {
           <div className="card mfade mfade-2 coffer-card-hover col-span-12 lg:col-span-8">
             <div className="flex items-end justify-between">
               <div>
-                <div className="overline">Consumption by month — trailing six</div>
+                <div className="eyebrow">Consumption by month — trailing six</div>
                 <h2 className="coffer-serif mt-1 text-2xl">Where it went</h2>
               </div>
               <span className="body-s text-on-surface-variant">click a bar to drill in</span>
@@ -184,7 +205,7 @@ export default async function Dashboard() {
 
         <section className="grid grid-cols-12 gap-4 md:gap-6">
           <div className="card mfade mfade-3 coffer-card-hover col-span-12 lg:col-span-4">
-            <div className="overline">Top categories — 180 d</div>
+            <div className="eyebrow">Top categories — 180 d</div>
             <h2 className="coffer-serif mt-1 text-2xl">Breakdown</h2>
             <ul className="mt-4">
               {top.map((c, i) => (
@@ -194,7 +215,7 @@ export default async function Dashboard() {
                 >
                   <span className="body-m text-on-surface">{c.category}</span>
                   <span className="title-s font-mono tabular-nums text-on-surface-variant">
-                    {formatCurrency(c.total)}
+                    <Amount value={c.total} />
                   </span>
                 </li>
               ))}
@@ -205,18 +226,24 @@ export default async function Dashboard() {
           </div>
 
           <div className="card mfade mfade-3 coffer-card-hover col-span-12 lg:col-span-4">
-            <div className="flex items-center gap-2">
-              <Bot size={18} className="text-primary" />
-              <div>
-                <div className="overline">Recent activity</div>
-                <h2 className="coffer-serif mt-1 text-2xl">Activity</h2>
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Bot size={18} className="text-primary" />
+                <div>
+                  <div className="eyebrow">Recent activity</div>
+                  <h2 className="coffer-serif mt-1 text-2xl">Activity</h2>
+                </div>
               </div>
+              <Link href="/dashboard/transactions" className="btn btn-text shrink-0">
+                All
+                <ArrowUpRight size={16} strokeWidth={2} />
+              </Link>
             </div>
             <TransactionTimeline rows={recent} />
           </div>
 
           <div className="card mfade mfade-3 coffer-card-hover col-span-12 lg:col-span-4">
-            <div className="overline">Detected — last 12 mo</div>
+            <div className="eyebrow">Detected — last 12 mo</div>
             <h2 className="coffer-serif mt-1 text-2xl">Recurring</h2>
             <ul className="mt-4 divide-y divide-outline-variant">
               {recurring.slice(0, 6).map((r, i) => (
@@ -229,7 +256,7 @@ export default async function Dashboard() {
                     </div>
                   </div>
                   <div className="title-s font-mono tabular-nums text-error">
-                    −{formatCurrency(r.typicalAmount)}
+                    −<Amount value={r.typicalAmount} />
                   </div>
                 </li>
               ))}
@@ -242,7 +269,7 @@ export default async function Dashboard() {
           </div>
 
           <div className="card mfade mfade-4 coffer-card-hover col-span-12 lg:col-span-8">
-            <div className="overline">Balances</div>
+            <div className="eyebrow">Balances</div>
             <h2 className="coffer-serif mt-1 text-2xl">Account summary</h2>
             <ul className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
               {accounts.slice(0, 8).map((a) => (
@@ -263,7 +290,7 @@ export default async function Dashboard() {
                   <div
                     className={`figure mt-3 text-[28px] ${a.type === "credit" || a.type === "loan" ? "text-error" : "text-on-surface"}`}
                   >
-                    {formatCurrency(a.currentBalance, a.currency ?? "USD")}
+                    <Amount value={a.currentBalance} currency={a.currency} />
                   </div>
                 </li>
               ))}
@@ -283,12 +310,34 @@ export default async function Dashboard() {
   );
 }
 
-function NetWorthBackdrop() {
+/**
+ * Sparkline behind the net-worth figure, plotted from real daily snapshots.
+ * Renders nothing until there are at least two snapshots — an invented shape
+ * behind a real number reads as history the user doesn't actually have.
+ */
+function NetWorthBackdrop({ series }: { series: Array<{ date: string; net: number }> }) {
+  if (series.length < 2) return null;
+
+  const W = 100;
+  const H = 42;
+  const values = series.map((p) => p.net);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  // Leave 6% headroom top and bottom so the line never clips the card edge.
+  const points = series.map((p, i) => {
+    const x = (i / (series.length - 1)) * W;
+    const y = H - 2.5 - ((p.net - min) / span) * (H - 5);
+    return `${x.toFixed(2)} ${y.toFixed(2)}`;
+  });
+  const line = `M${points.join(" L")}`;
+  const area = `${line} L${W} ${H} L0 ${H} Z`;
+
   return (
     <svg
       aria-hidden="true"
       className="absolute inset-x-0 bottom-0 h-52 w-full opacity-35"
-      viewBox="0 0 100 42"
+      viewBox={`0 0 ${W} ${H}`}
       preserveAspectRatio="none"
     >
       <defs>
@@ -297,8 +346,14 @@ function NetWorthBackdrop() {
           <stop offset="100%" stopColor="hsl(var(--md-primary))" stopOpacity="0" />
         </linearGradient>
       </defs>
-      <path d="M0 42 L0 24 L16 28 L32 18 L48 22 L64 11 L82 16 L100 8 L100 42 Z" fill="url(#net-worth-fill)" />
-      <path d="M0 24 L16 28 L32 18 L48 22 L64 11 L82 16 L100 8" fill="none" stroke="hsl(var(--md-primary))" strokeWidth="0.7" />
+      <path d={area} fill="url(#net-worth-fill)" />
+      <path
+        d={line}
+        fill="none"
+        stroke="hsl(var(--md-primary))"
+        strokeWidth="0.7"
+        vectorEffect="non-scaling-stroke"
+      />
     </svg>
   );
 }
@@ -331,7 +386,7 @@ function Stat({
   tone,
 }: {
   label: string;
-  value: string;
+  value: React.ReactNode;
   tone: "default" | "success" | "error";
 }) {
   const toneClass = tone === "success" ? "text-success" : tone === "error" ? "text-error" : "text-on-surface";
@@ -352,8 +407,8 @@ function MiniCard({
 }: {
   Icon: React.ComponentType<{ size?: number; strokeWidth?: number }>;
   label: string;
-  value: string;
-  sub: string;
+  value: React.ReactNode;
+  sub: React.ReactNode;
   tone: "default" | "error" | "success";
 }) {
   const iconTone =
@@ -366,7 +421,7 @@ function MiniCard({
     <div className="card-elevated coffer-card-hover p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="overline">{label}</div>
+          <div className="eyebrow">{label}</div>
           <div className="figure mt-2 text-[28px]">{value}</div>
           <div className="body-s mt-2 text-on-surface-variant">{sub}</div>
         </div>
@@ -393,12 +448,12 @@ function SavingsBreakdownCard({
     <div className="card-elevated coffer-card-hover p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="overline">Saving · 90d</div>
+          <div className="eyebrow">Saving · 90d</div>
           <div className="figure mt-2 text-[28px]">
             {rate == null ? "—" : `${rate}%`}
           </div>
           <div className="body-s mt-1 text-on-surface-variant">
-            {formatCurrency(total)} moved into savings
+            <Amount value={total} /> moved into savings
           </div>
         </div>
         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-success-container text-on-success-container">
@@ -415,7 +470,7 @@ function SavingsBreakdownCard({
               <div className="flex items-baseline justify-between gap-2">
                 <span className="body-s text-on-surface-variant">{r.name}</span>
                 <span className="body-s font-mono tabular-nums text-on-surface">
-                  {formatCurrency(r.value)}
+                  <Amount value={r.value} />
                   {total > 0 && (
                     <span className="ml-1.5 text-on-surface-variant">· {pct}%</span>
                   )}
@@ -469,7 +524,7 @@ function TransactionTimeline({
                 </div>
               </div>
               <div className={`title-s font-mono tabular-nums ${isIncome ? "text-success" : "text-on-surface"}`}>
-                {formatCurrency(row.amount, row.currency)}
+                <Amount value={row.amount} currency={row.currency} />
               </div>
             </div>
           </li>

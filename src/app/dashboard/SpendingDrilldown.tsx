@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import { X } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { Amount } from "@/components/Amount";
 
 type Datum = { month: string; total: number };
 
@@ -123,7 +124,7 @@ export function SpendingDrilldown({ data }: { data: Datum[] }) {
         <div className="rounded-2xl bg-surface-container p-4 mfade mfade-2">
           <div className="flex items-center justify-between">
             <div>
-              <div className="overline">Drill-in</div>
+              <div className="eyebrow">Drill-in</div>
               <h3 className="title-m mt-1">{prettyMonth(open)} — top categories + transactions</h3>
             </div>
             <button
@@ -140,7 +141,7 @@ export function SpendingDrilldown({ data }: { data: Datum[] }) {
           {detail && (
             <div className="mt-4 grid gap-6 md:grid-cols-2">
               <div>
-                <div className="overline mb-2">By category</div>
+                <div className="eyebrow mb-2">By category</div>
                 <ul className="divide-y divide-outline-variant">
                   {detail.cats.map((c) => (
                     <li
@@ -149,7 +150,7 @@ export function SpendingDrilldown({ data }: { data: Datum[] }) {
                     >
                       <span className="body-m truncate">{c.category}</span>
                       <span className="title-s font-mono tabular-nums">
-                        {formatCurrency(c.total)}
+                        <Amount value={c.total} />
                       </span>
                     </li>
                   ))}
@@ -159,7 +160,7 @@ export function SpendingDrilldown({ data }: { data: Datum[] }) {
                 </ul>
               </div>
               <div>
-                <div className="overline mb-2">Largest transactions</div>
+                <div className="eyebrow mb-2">Largest transactions</div>
                 <ul className="divide-y divide-outline-variant">
                   {detail.tx.map((t) => (
                     <li key={t.id} className="grid grid-cols-[1fr_auto] gap-3 py-2">
@@ -170,7 +171,7 @@ export function SpendingDrilldown({ data }: { data: Datum[] }) {
                         </div>
                       </div>
                       <div className="title-s font-mono tabular-nums text-error">
-                        −{formatCurrency(Math.abs(t.amount))}
+                        −<Amount value={Math.abs(t.amount)} />
                       </div>
                     </li>
                   ))}

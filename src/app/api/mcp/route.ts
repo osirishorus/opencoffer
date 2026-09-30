@@ -53,6 +53,7 @@ export async function POST(req: Request) {
       handleMcpRequest(m as Parameters<typeof handleMcpRequest>[0], {
         userId: ctx.userId,
         tokenPrefix: ctx.tokenPrefix,
+        scopes: ctx.scopes,
       }),
     ),
   );

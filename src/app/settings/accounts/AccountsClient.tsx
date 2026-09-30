@@ -2,7 +2,7 @@
 
 import { FormEvent, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { formatCurrency } from "@/lib/utils";
+import { Amount } from "@/components/Amount";
 import { setAccountGroup } from "./actions";
 import { Check, RotateCcw, Loader2, Plus, Save, Trash2 } from "lucide-react";
 import { useConfirm } from "@/components/ConfirmDialog";
@@ -146,11 +146,11 @@ function ManualAccountsPanel({
 
       <form onSubmit={create} className="grid grid-cols-1 gap-3 lg:grid-cols-6">
         <label className="block lg:col-span-2">
-          <span className="overline">Name</span>
+          <span className="eyebrow">Name</span>
           <input value={name} onChange={(e) => setName(e.target.value)} className="tf" required maxLength={120} />
         </label>
         <label className="block">
-          <span className="overline">Type</span>
+          <span className="eyebrow">Type</span>
           <select value={type} onChange={(e) => setType(e.target.value as AccountType)} className="tf capitalize">
             {ACCOUNT_TYPES.map((value) => (
               <option key={value} value={value}>{value}</option>
@@ -158,7 +158,7 @@ function ManualAccountsPanel({
           </select>
         </label>
         <label className="block">
-          <span className="overline">Group</span>
+          <span className="eyebrow">Group</span>
           <select value={group} onChange={(e) => setGroup(e.target.value as AccountGroup)} className="tf capitalize">
             {GROUPS.map((value) => (
               <option key={value} value={value}>{value}</option>
@@ -166,12 +166,12 @@ function ManualAccountsPanel({
           </select>
         </label>
         <label className="block">
-          <span className="overline">Balance</span>
+          <span className="eyebrow">Balance</span>
           <input value={balance} onChange={(e) => setBalance(e.target.value)} className="tf" type="number" step="0.01" required />
         </label>
         <div className="grid grid-cols-[1fr_auto] gap-2">
           <label className="block">
-            <span className="overline">Currency</span>
+            <span className="eyebrow">Currency</span>
             <input value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase())} className="tf uppercase" maxLength={3} />
           </label>
           <button type="submit" disabled={saving || !name.trim() || !balance.trim()} className="btn btn-filled self-end">
@@ -243,11 +243,11 @@ function ManualAccountRow({
   return (
     <div className="grid grid-cols-1 gap-3 p-4 lg:grid-cols-[minmax(0,1.5fr)_11rem_minmax(0,1fr)_auto_auto] lg:items-end">
       <label className="block">
-        <span className="overline">Name</span>
+        <span className="eyebrow">Name</span>
         <input value={name} onChange={(e) => setName(e.target.value)} className="tf" />
       </label>
       <label className="block">
-        <span className="overline">Group</span>
+        <span className="eyebrow">Group</span>
         <select value={group} onChange={(e) => setGroup(e.target.value as AccountGroup)} className="tf capitalize">
           {GROUPS.map((value) => (
             <option key={value} value={value}>{value}</option>
@@ -255,7 +255,7 @@ function ManualAccountRow({
         </select>
       </label>
       <label className="block">
-        <span className="overline">Balance</span>
+        <span className="eyebrow">Balance</span>
         <input value={balance} onChange={(e) => setBalance(e.target.value)} className="tf" type="number" step="0.01" />
       </label>
       <div className="flex gap-2">
@@ -315,7 +315,7 @@ function AccountRow({ account }: { account: Account }) {
           {account.subtype ? ` · ${account.subtype}` : ""}
           <span className="mx-1.5">·</span>
           <span className="font-mono tabular-nums">
-            {formatCurrency(account.currentBalance, account.currency ?? "USD")}
+            <Amount value={account.currentBalance} currency={account.currency} />
           </span>
           {overridden && (
             <span className="ml-2 rounded-full bg-secondary-container px-2 py-0.5 text-[10px] uppercase tracking-wide text-on-secondary-container">

@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
+import { Amount } from "@/components/Amount";
 import { DataTable, Th, Td, Tr, Thead } from "@/components/DataTable";
 
 type Ticker = {
@@ -97,8 +98,8 @@ export function HoldingsClient({
     <div className="space-y-6">
       {/* Headline */}
       <section className="grid grid-cols-12 gap-4">
-        <Stat eyebrow="Market value · all" value={formatCurrency(totals.marketValue)} />
-        <Stat eyebrow="Cost basis · positions" value={formatCurrency(totals.costBasis)} />
+        <Stat eyebrow="Market value · all" value={<Amount value={totals.marketValue} />} />
+        <Stat eyebrow="Cost basis · positions" value={<Amount value={totals.costBasis} />} />
         <Stat
           eyebrow="Unrealized"
           value={
@@ -118,7 +119,7 @@ export function HoldingsClient({
       {/* Two pies side by side */}
       <section className="grid grid-cols-12 gap-6">
         <div className="card col-span-12 lg:col-span-6">
-          <div className="overline">Allocation by position</div>
+          <div className="eyebrow">Allocation by position</div>
           <h3 className="title-l mt-1">Top holdings</h3>
           <div className="mt-4 h-72">
             {pieData.length === 0 ? (
@@ -159,7 +160,7 @@ export function HoldingsClient({
           </div>
         </div>
         <div className="card col-span-12 lg:col-span-6">
-          <div className="overline">By account type</div>
+          <div className="eyebrow">By account type</div>
           <h3 className="title-l mt-1">Retirement vs taxable</h3>
           <div className="mt-4 h-72">
             {groupPie.length === 0 ? (
@@ -252,13 +253,13 @@ export function HoldingsClient({
                       <div className="body-s mt-0.5 text-on-surface-variant">
                         <span className="badge mr-2">{acct.group}</span>
                         {acct.positions.length} position{acct.positions.length === 1 ? "" : "s"} ·{" "}
-                        {formatCurrency(acct.balance)} balance
+                        <Amount value={acct.balance} /> balance
                       </div>
                     </div>
                     {acctGain != null && (
                       <div className={`title-s font-mono tabular-nums ${acctGain >= 0 ? "text-success" : "text-error"}`}>
                         {acctGain >= 0 ? "+" : "−"}
-                        {formatCurrency(Math.abs(acctGain))}
+                        <Amount value={Math.abs(acctGain)} />
                         {acctGainPct != null && (
                           <span className="ml-1.5 body-s">
                             ({acctGainPct >= 0 ? "+" : ""}
@@ -292,9 +293,9 @@ export function HoldingsClient({
                             <Td align="right" mono>
                               {p.quantity.toLocaleString(undefined, { maximumFractionDigits: 4 })}
                             </Td>
-                            <Td align="right" mono>{formatCurrency(p.value)}</Td>
+                            <Td align="right" mono><Amount value={p.value} /></Td>
                             <Td align="right" mono className="text-on-surface-variant">
-                              {p.cost > 0 ? formatCurrency(p.cost) : "—"}
+                              {p.cost > 0 ? <Amount value={p.cost} /> : "—"}
                             </Td>
                             <Td
                               align="right"
@@ -346,9 +347,9 @@ export function HoldingsClient({
                         <Td align="right" mono>
                           {t.quantity.toLocaleString(undefined, { maximumFractionDigits: 4 })}
                         </Td>
-                        <Td align="right" mono>{formatCurrency(t.value)}</Td>
+                        <Td align="right" mono><Amount value={t.value} /></Td>
                         <Td align="right" mono className="text-on-surface-variant">
-                          {t.cost > 0 ? formatCurrency(t.cost) : "—"}
+                          {t.cost > 0 ? <Amount value={t.cost} /> : "—"}
                         </Td>
                         <Td align="right" mono className={gain == null ? "" : gain >= 0 ? "text-success" : "text-error"}>
                           {gain == null
@@ -366,7 +367,7 @@ export function HoldingsClient({
                             </Td>
                             <Td align="right" mono className="text-on-surface-variant">
                               {a.quantity.toLocaleString(undefined, { maximumFractionDigits: 4 })} sh ·{" "}
-                              {formatCurrency(a.value)}
+                              <Amount value={a.value} />
                             </Td>
                             <Td></Td>
                             <Td></Td>
@@ -400,7 +401,7 @@ export function HoldingsClient({
               </div>
               <span className="badge">{a.type}</span>
               <span className="title-s font-mono tabular-nums">
-                {formatCurrency(a.currentBalance, a.currency ?? "USD")}
+                <Amount value={a.currentBalance} currency={a.currency} />
               </span>
             </li>
           ))}
@@ -417,15 +418,15 @@ function Stat({
   tone = "default",
 }: {
   eyebrow: string;
-  value: string;
-  sub?: string;
+  value: React.ReactNode;
+  sub?: React.ReactNode;
   tone?: "default" | "success" | "error";
 }) {
   const toneClass =
     tone === "success" ? "text-success" : tone === "error" ? "text-error" : "text-on-surface";
   return (
     <div className="card col-span-12 sm:col-span-4">
-      <div className="overline">{eyebrow}</div>
+      <div className="eyebrow">{eyebrow}</div>
       <div className={`figure mt-2 text-[24px] sm:text-[28px] lg:text-[36px] ${toneClass}`}>
         {value}
       </div>

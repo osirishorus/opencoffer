@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { and, desc, eq, gte, ilike, lte, or } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/lib/db/client";
 import { financialAccounts, transactions } from "@/lib/db/schema";
 import { escapeCsvField } from "@/lib/csv";
+import { parseTransactionFilters, transactionWhere } from "@/lib/finance/transactionFilters";
 
 function ymd(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -14,39 +15,9 @@ export async function GET(req: Request) {
   if (!session?.user?.id) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const url = new URL(req.url);
-  const search = url.searchParams.get("search")?.trim();
-  const accountId = url.searchParams.get("accountId")?.trim();
-  const category = url.searchParams.get("category")?.trim();
-  const startDate = url.searchParams.get("startDate")?.trim();
-  const endDate = url.searchParams.get("endDate")?.trim();
-
-  const conditions = [eq(transactions.userId, session.user.id)];
-  if (accountId) conditions.push(eq(transactions.accountId, accountId));
-  if (startDate) conditions.push(gte(transactions.date, new Date(startDate)));
-  if (endDate) conditions.push(lte(transactions.date, new Date(endDate)));
-  if (category) {
-    conditions.push(
-      or(
-        ilike(transactions.overrideCategory, category),
-        ilike(transactions.aiCategory, category),
-        ilike(transactions.category, category),
-      )!,
-    );
-  }
-  if (search) {
-    const like = `%${search}%`;
-    conditions.push(
-      or(
-        ilike(transactions.name, like),
-        ilike(transactions.merchantName, like),
-        ilike(transactions.overrideMerchant, like),
-        ilike(financialAccounts.name, like),
-        ilike(transactions.overrideCategory, like),
-        ilike(transactions.aiCategory, like),
-        ilike(transactions.category, like),
-      )!,
-    );
-  }
+  // Same builder the transactions page uses, so the CSV always matches the
+  // rows the user was looking at when they clicked Export.
+  const where = await transactionWhere(session.user.id, parseTransactionFilters(url.searchParams));
 
   const rows = await db
     .select({
@@ -70,7 +41,7 @@ export async function GET(req: Request) {
     })
     .from(transactions)
     .leftJoin(financialAccounts, eq(financialAccounts.id, transactions.accountId))
-    .where(and(...conditions))
+    .where(where)
     .orderBy(desc(transactions.date));
 
   const header = [

@@ -5,7 +5,11 @@ import { db } from "@/lib/db/client";
 import { mcpTokens } from "@/lib/db/schema";
 import { generateToken } from "@/lib/crypto";
 
-const body = z.object({ label: z.string().min(1) });
+const body = z.object({
+  label: z.string().min(1),
+  /** "read" mints a read-only token; "write" additionally allows mutating tools. */
+  access: z.enum(["read", "write"]).default("read"),
+});
 
 export async function POST(req: Request) {
   const session = await auth();
@@ -20,11 +24,13 @@ export async function POST(req: Request) {
       label: parsed.data.label,
       tokenHash: hash,
       tokenPrefix: prefix,
+      scopes: parsed.data.access === "write" ? ["all", "write"] : ["all"],
     })
     .returning({
       id: mcpTokens.id,
       label: mcpTokens.label,
       tokenPrefix: mcpTokens.tokenPrefix,
+      scopes: mcpTokens.scopes,
       createdAt: mcpTokens.createdAt,
       lastUsedAt: mcpTokens.lastUsedAt,
       revokedAt: mcpTokens.revokedAt,

@@ -142,6 +142,13 @@ export type FinanceTool<TSchema extends z.ZodTypeAny = z.ZodTypeAny> = {
   name: string;
   description: string;
   schema: TSchema;
+  /**
+   * True when the tool changes stored data (category overrides, account groups,
+   * assistant memories, kicking off re-categorization). The MCP layer refuses
+   * these unless the bearer token carries the "write" scope, so a token issued
+   * as read-only really is read-only.
+   */
+  mutates?: boolean;
   execute: (args: z.infer<TSchema>, ctx: { userId: string }) => Promise<unknown>;
 };
 
@@ -1506,6 +1513,7 @@ const getAlerts: FinanceTool = {
 
 const setTransactionCategory: FinanceTool = {
   name: "set_transaction_category",
+  mutates: true,
   description:
     "Set or change the category on a single transaction. The user can introduce ANY new category name — it doesn't have to be in the standard list. Use after the user asks to fix a categorization (e.g. 'mark that as travel'). Pass null to clear the override and fall back to the AI guess.",
   schema: z
@@ -1531,6 +1539,7 @@ const setTransactionCategory: FinanceTool = {
 
 const bulkSetCategoryByMerchant: FinanceTool = {
   name: "bulk_set_category_by_merchant",
+  mutates: true,
   description:
     "Re-categorize every transaction whose merchant or description matches a substring. Useful for 'put all my Spotify charges under Music' or 'tag everything from Whole Foods as Groceries'. Returns how many rows were updated.",
   schema: z
@@ -1559,6 +1568,7 @@ const bulkSetCategoryByMerchant: FinanceTool = {
 
 const runCategorization: FinanceTool = {
   name: "run_categorization",
+  mutates: true,
   description:
     "Write tool: run the AI categorizer for the user's transactions. Use mode='uncategorized' to classify only rows without AI/manual category; use mode='all' only when the user explicitly asks to recategorize everything because it overwrites AI categories while preserving manual overrides.",
   schema: z
@@ -1603,6 +1613,7 @@ const getInsights: FinanceTool = {
 
 const setAccountGroup: FinanceTool = {
   name: "set_account_group",
+  mutates: true,
   description:
     "Reclassify an account into a different group for ALL subsequent analysis (balances, net-worth-by-group, charts). Useful when the user holds something at a brokerage but conceptually treats it like cash/savings — e.g. 'treat my Fidelity brokerage as cash going forward'. Allowed groups: cash | credit | retirement | brokerage | hsa | loan | other. Pass `clear` to remove the override and fall back to the system-assigned group. The change is persistent across conversations.",
   schema: z
@@ -1639,6 +1650,7 @@ const setAccountGroup: FinanceTool = {
 
 const remember: FinanceTool = {
   name: "remember",
+  mutates: true,
   description:
     "Save a long-term note about the user that you can recall in future conversations. Use for: preferences ('treats Fidelity as cash'), goals ('saving for house in 5 years'), facts they want you to know ('partner's name is Sam'), or context that should persist. Pass an optional stable `key` to upsert (e.g. 'fidelity-as-cash', 'savings-goal'); without a key, a new memory is created. Keep `content` concise — one or two sentences.",
   schema: z
@@ -1717,6 +1729,7 @@ const recall: FinanceTool = {
 
 const forget: FinanceTool = {
   name: "forget",
+  mutates: true,
   description:
     "Delete a saved memory by id or by key. Use when the user asks you to forget something, or to remove a stale fact. Provide exactly one of `id` or `key`.",
   schema: z

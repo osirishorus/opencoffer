@@ -46,7 +46,7 @@ export function PageHeader({
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_auto]">
       <div>
-        {overline && <div className="overline mfade mfade-1">{overline}</div>}
+        {overline && <div className="eyebrow mfade mfade-1">{overline}</div>}
         <h1 className="coffer-serif mfade mfade-2 mt-2 text-4xl leading-tight text-on-surface md:text-5xl">{title}</h1>
         {description && (
           <p className="body-l mfade mfade-3 mt-3 max-w-2xl text-on-surface-variant">

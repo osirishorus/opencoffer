@@ -14,6 +14,7 @@ export default async function McpPage() {
       id: mcpTokens.id,
       label: mcpTokens.label,
       tokenPrefix: mcpTokens.tokenPrefix,
+      scopes: mcpTokens.scopes,
       createdAt: mcpTokens.createdAt,
       lastUsedAt: mcpTokens.lastUsedAt,
       revokedAt: mcpTokens.revokedAt,

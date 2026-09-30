@@ -5,9 +5,19 @@ import { auth } from "@/auth";
 import { db } from "@/lib/db/client";
 import { connections } from "@/lib/db/schema";
 import { syncConnection, syncAllForUser } from "@/lib/simplefin/sync";
+import { throttle } from "@/lib/auth/throttle";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
+
+/**
+ * Each sync fans out to the SimpleFIN bridge, so an unthrottled endpoint lets a
+ * logged-in tab (or a stuck retry loop) hammer a third party we don't own and
+ * burn its quota. The client-side lock in DataAutoRefresh is a courtesy, not a
+ * control — this is the one that counts.
+ */
+const SYNC_MAX_PER_WINDOW = 12;
+const SYNC_WINDOW_SECONDS = 15 * 60;
 
 const FINANCE_PATHS = [
   "/dashboard",
@@ -29,6 +39,18 @@ export async function POST(req: Request) {
   const url = new URL(req.url);
   const connectionId = url.searchParams.get("connectionId");
   const staleMinutes = Number(url.searchParams.get("staleMinutes") ?? "0");
+
+  const gate = await throttle(
+    `sync:${session.user.id}`,
+    SYNC_MAX_PER_WINDOW,
+    SYNC_WINDOW_SECONDS,
+  );
+  if (!gate.allowed) {
+    return NextResponse.json(
+      { error: "Too many sync requests. Try again shortly." },
+      { status: 429, headers: { "retry-after": String(gate.retryAfterSeconds) } },
+    );
+  }
 
   try {
     let synced = 0;

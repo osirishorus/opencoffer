@@ -3,7 +3,8 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Car, Gem, Home, Landmark, Loader2, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
+import { Amount } from "@/components/Amount";
 import { useConfirm } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toaster";
 
@@ -158,7 +159,7 @@ export function AssetsClient({ assets }: { assets: AssetRow[] }) {
       <section className="card-elevated mfade mfade-1">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <div className="overline">Add asset</div>
+            <div className="eyebrow">Add asset</div>
             <h2 className="coffer-serif mt-1 text-2xl">New holding</h2>
           </div>
           {pending && <Loader2 size={18} className="animate-spin text-on-surface-variant" />}
@@ -362,7 +363,7 @@ function AssetCard({
         </div>
         <div className="text-right">
           <div className="figure text-[28px]">
-            {asset.currentValue ? formatCurrency(asset.currentValue.value, asset.currentValue.currency) : "-"}
+            {asset.currentValue ? <Amount value={asset.currentValue.value} currency={asset.currentValue.currency} /> : "—"}
           </div>
           <div className="body-s capitalize text-on-surface-variant">
             {asset.currentValue?.source.replace("_", " ") ?? "no value"}
@@ -428,7 +429,7 @@ function AssetCard({
               <div className="body-s text-on-surface-variant">{formatDate(value.asOf)}</div>
             </div>
             <div className="title-s font-mono tabular-nums">
-              {formatCurrency(value.value, value.currency)}
+              <Amount value={value.value} currency={value.currency} />
             </div>
           </div>
         ))}
@@ -459,8 +460,8 @@ function AssetMetadata({ asset }: { asset: AssetRow }) {
 function SummaryTile({ label, value }: { label: string; value: number }) {
   return (
     <div className="card-elevated p-4">
-      <div className="overline">{label}</div>
-      <div className="figure mt-2 text-[28px]">{formatCurrency(value)}</div>
+      <div className="eyebrow">{label}</div>
+      <div className="figure mt-2 text-[28px]"><Amount value={value} /></div>
     </div>
   );
 }

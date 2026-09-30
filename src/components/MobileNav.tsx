@@ -64,11 +64,11 @@ export function MobileChrome({
             </div>
 
             <nav className="flex-1 overflow-y-auto px-2 pb-4">
-              <div className="overline px-5 pb-2 pt-2">Workspace</div>
+              <div className="eyebrow px-5 pb-2 pt-2">Workspace</div>
               {WORKSPACE_NAV.map((n) => (
                 <DrawerLink key={n.href} {...n} path={path} />
               ))}
-              <div className="overline px-5 pb-2 pt-6">Settings</div>
+              <div className="eyebrow px-5 pb-2 pt-6">Settings</div>
               {SETTINGS_NAV.map((n) => (
                 <DrawerLink key={n.href} {...n} path={path} />
               ))}

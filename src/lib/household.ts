@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { users, householdMembers } from "@/lib/db/schema";
@@ -12,8 +13,16 @@ import { users, householdMembers } from "@/lib/db/schema";
  *
  * NOT used for per-user-only tables: llm_credentials, chat_threads, chat_messages,
  * mcp_tokens.
+ *
+ * Wrapped in React's cache() so it resolves once per request instead of once per
+ * tool call — the dashboard alone fans out to eight tools, which meant sixteen
+ * redundant queries just to answer "who am I allowed to see?". Outside a request
+ * (the worker) cache() passes straight through, so a long-running process never
+ * pins a stale household.
  */
-export async function householdUserIds(viewerUserId: string): Promise<string[]> {
+export const householdUserIds = cache(async function householdUserIds(
+  viewerUserId: string,
+): Promise<string[]> {
   const [me] = await db
     .select({ householdId: users.householdId })
     .from(users)
@@ -26,4 +35,4 @@ export async function householdUserIds(viewerUserId: string): Promise<string[]> 
     .where(eq(householdMembers.householdId, me.householdId));
   if (rows.length === 0) return [viewerUserId];
   return rows.map((r) => r.userId);
-}
+});

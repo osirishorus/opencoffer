@@ -56,7 +56,7 @@ export default async function Home() {
 
           <aside className="col-span-12 lg:col-span-4">
             <div className="card-elevated mfade mfade-3">
-              <div className="overline">Sandbox preview</div>
+              <div className="eyebrow">Sandbox preview</div>
               <div className="mt-4 space-y-5">
                 <Specimen label="Net worth" value="$284,310.22" tone="default" />
                 <hr className="divider" />
@@ -74,7 +74,7 @@ export default async function Home() {
 
         {/* Three pillars */}
         <section>
-          <div className="overline">What it does</div>
+          <div className="eyebrow">What it does</div>
           <h2 className="headline-l mt-2 max-w-[18ch]">
             Three things, done well.
           </h2>

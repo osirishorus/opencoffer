@@ -70,7 +70,7 @@ export function HouseholdClient({
       <section className="card-elevated mfade mfade-1">
         <div className="flex items-end gap-3">
           <div className="flex-1">
-            <label className="overline">Household name</label>
+            <label className="eyebrow">Household name</label>
             <input value={name} onChange={(e) => setName(e.target.value)} className="tf" />
           </div>
           <button onClick={rename} disabled={busy} className="btn btn-filled">
@@ -120,7 +120,7 @@ export function HouseholdClient({
           </div>
           {invite && (
             <div className="mt-4 rounded-2xl bg-surface-container p-4">
-              <div className="overline">Share this link (valid 7 days, single use)</div>
+              <div className="eyebrow">Share this link (valid 7 days, single use)</div>
               <div className="mt-2 flex items-center gap-2">
                 <code className="flex-1 overflow-x-auto rounded-lg bg-surface px-3 py-2 font-mono text-sm">
                   {invite.url}

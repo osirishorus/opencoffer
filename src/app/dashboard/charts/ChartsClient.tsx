@@ -52,7 +52,7 @@ export function ChartsClient({
     <div className="mx-auto max-w-6xl space-y-6 p-4 pb-28 md:space-y-8 md:p-8 md:pb-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <div className="overline">Chart command center</div>
+          <div className="eyebrow">Chart command center</div>
           <h2 className="coffer-serif mt-2 text-3xl leading-tight md:text-4xl">Primary views</h2>
           <p className="body-m mt-2 max-w-2xl text-on-surface-variant">
             Current wealth, monthly flow, and category mix.

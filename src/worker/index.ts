@@ -16,6 +16,7 @@ import { evaluateAlerts } from "@/lib/finance/alerts";
 import { generateInsights } from "@/lib/finance/insights";
 import { refreshAllRealAssets } from "@/lib/real-assets/refresh";
 import { deliverPendingAlerts } from "@/lib/notifications/deliver";
+import { pruneThrottles } from "@/lib/auth/throttle";
 
 async function runFrequentSync() {
   const items = await db.select().from(connections).where(eq(connections.status, "active"));
@@ -63,6 +64,10 @@ async function runFrequentSync() {
 }
 
 async function runRetentionPurge() {
+  // Expired throttle windows can't block anything; drop them so the table
+  // doesn't grow one row per (email, IP) pair seen forever.
+  await pruneThrottles();
+
   const due = await db
     .select()
     .from(connections)

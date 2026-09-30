@@ -29,6 +29,13 @@
       "when": 1783363200000,
       "tag": "0003_manual_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785346644891,
+      "tag": "0004_rate_limits",
+      "breakpoints": true
     }
   ]
 }

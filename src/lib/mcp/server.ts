@@ -4,6 +4,7 @@ import { db } from "@/lib/db/client";
 import { mcpTokens, auditLog } from "@/lib/db/schema";
 import { hashToken } from "@/lib/crypto";
 import { financeTools, findTool } from "@/lib/finance/tools";
+import { sanitizeToolResult } from "@/lib/finance/sanitize";
 
 /* ---------- JSON-RPC envelope ---------- */
 
@@ -98,18 +99,35 @@ function zodToJsonSchema(s: z.ZodTypeAny): Record<string, unknown> {
   }
 }
 
-const TOOL_LIST = financeTools.map((t) => ({
-  name: t.name,
-  description: t.description,
-  inputSchema: zodToJsonSchema(t.schema),
-}));
+/**
+ * Tokens carry a scope list. Historically every token was minted with ["all"],
+ * while the UI promised "read-only" — so "all" is deliberately read-only here
+ * and mutating tools require an explicit "write" scope. Existing tokens keep
+ * working for reads and cannot silently gain write access.
+ */
+export function tokenCanWrite(scopes: readonly string[]): boolean {
+  return scopes.includes("write");
+}
+
+function toolsFor(scopes: readonly string[]) {
+  const canWrite = tokenCanWrite(scopes);
+  return financeTools
+    .filter((t) => canWrite || !t.mutates)
+    .map((t) => ({
+      name: t.name,
+      description: t.description,
+      inputSchema: zodToJsonSchema(t.schema),
+    }));
+}
 
 /* ---------- Dispatcher ---------- */
 
 export async function handleMcpRequest(
   msg: JsonRpcRequest,
-  ctx: { userId: string; tokenPrefix: string },
+  ctx: { userId: string; tokenPrefix: string; scopes?: readonly string[] },
 ): Promise<JsonRpcResponse | null> {
+  const scopes = ctx.scopes ?? ["all"];
+  const canWrite = tokenCanWrite(scopes);
   const id = msg.id ?? null;
   const ok = (result: unknown): JsonRpcResponse => ({ jsonrpc: "2.0", id, result });
   const err = (code: number, message: string, data?: unknown): JsonRpcResponse => ({
@@ -132,14 +150,17 @@ export async function handleMcpRequest(
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: "opencoffer", version: "0.1.0" },
         instructions:
-          "OpenCoffer MCP server: query the user's connected financial accounts, transactions, holdings, recurring streams, and net worth. All tools are read-only and scoped to the bearer-token's owner.",
+          "OpenCoffer MCP server: query the user's connected financial accounts, transactions, holdings, recurring streams, and net worth. Every tool is scoped to the bearer-token's owner (and their household, where data is shared). " +
+          (canWrite
+            ? "This token also carries the 'write' scope: it may edit transaction categories, account groups, and assistant memories."
+            : "This token is read-only — tools that would modify stored data are not exposed."),
       });
 
     case "ping":
       return ok({});
 
     case "tools/list":
-      return ok({ tools: TOOL_LIST });
+      return ok({ tools: toolsFor(scopes) });
 
     case "tools/call": {
       const params = msg.params as { name?: string; arguments?: unknown } | undefined;
@@ -147,12 +168,19 @@ export async function handleMcpRequest(
       if (!name) return err(-32602, "missing tool name");
       const tool = findTool(name);
       if (!tool) return err(-32601, `unknown tool: ${name}`);
+      if (tool.mutates && !canWrite) {
+        return err(-32001, `tool '${name}' modifies data and this token is read-only`);
+      }
       const parsed = tool.schema.safeParse(params?.arguments ?? {});
       if (!parsed.success) {
         return err(-32602, "invalid arguments", parsed.error.issues);
       }
       try {
-        const result = await tool.execute(parsed.data, { userId: ctx.userId });
+        // Same reasoning as the chat path: merchant/memo text originates
+        // outside the user's control, so scrub it before an agent reads it.
+        const result = sanitizeToolResult(
+          await tool.execute(parsed.data, { userId: ctx.userId }),
+        );
         await db.insert(auditLog).values({
           userId: ctx.userId,
           kind: "mcp.tool",

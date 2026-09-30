@@ -557,6 +557,26 @@ export const aiInsights = pgTable(
   (t) => [index("ai_insights_user_idx").on(t.userId, t.generatedAt)],
 );
 
+/* ---------- Rate limiting ----------
+ *
+ * Shared counters for throttled actions (login attempts, manual syncs). Lives in
+ * Postgres rather than process memory so the web and worker processes agree, and
+ * so a restart doesn't hand an attacker a fresh budget. Rows are self-expiring:
+ * a window older than its limit is treated as empty and reset in place. */
+
+export const rateLimits = pgTable(
+  "rate_limits",
+  {
+    /** Opaque bucket key, e.g. "login:user@example.com|203.0.113.9" or "sync:<userId>". */
+    key: text("key").primaryKey(),
+    count: integer("count").notNull().default(0),
+    windowStart: timestamp("window_start", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("rate_limits_window_idx").on(t.windowStart)],
+);
+
 /* ---------- Audit log ---------- */
 
 export const auditLog = pgTable(
