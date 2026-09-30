@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   alertRules,
@@ -7,12 +7,22 @@ import {
   financialAccounts,
   budgets,
 } from "@/lib/db/schema";
-import { effectiveCategorySQL, spendKindWhere } from "@/lib/finance/tools";
+import { effectiveCategorySQL, findTool, spendKindWhere, type RecurringMerchant } from "@/lib/finance/tools";
+import { householdUserIds } from "@/lib/household";
+
+export const ALERT_KINDS = [
+  "large_tx",
+  "category_overspend",
+  "low_balance",
+  "recurring_price_increase",
+] as const;
+export type AlertKind = (typeof ALERT_KINDS)[number];
 
 /**
  * Evaluate every active rule for a user and persist any new alerts.
- * Idempotent per (rule, day, entity) — we don't repeat alerts for the same
- * transaction or category overrun within a single calendar day.
+ * Idempotent per dedupe key — each evaluator scopes its key to the thing it
+ * alerts about (a transaction, a category-month, an account-day, a price
+ * change), so re-running rules never repeats an alert.
  */
 export async function evaluateAlerts(userId: string) {
   const rules = await db
@@ -26,6 +36,7 @@ export async function evaluateAlerts(userId: string) {
       if (rule.kind === "large_tx") await evaluateLargeTx(userId, rule);
       else if (rule.kind === "category_overspend") await evaluateOverspend(userId, rule);
       else if (rule.kind === "low_balance") await evaluateLowBalance(userId, rule);
+      else if (rule.kind === "recurring_price_increase") await evaluatePriceIncrease(userId, rule);
     } catch (e) {
       console.error("[alerts] rule eval failed", rule.id, e);
     }
@@ -41,7 +52,10 @@ async function emit(opts: {
   meta?: Record<string, unknown>;
   dedupeKey: string;
 }) {
-  // Don't emit the same alert twice in 24h.
+  // Dedupe on the key alone. A time window here used to re-fire alerts: large
+  // transactions are scanned over a 3-day lookback (so a 24h window alerted on
+  // the same transaction up to three times) and a budget overrun, keyed by
+  // month, alerted again every day for the rest of the month.
   const existing = await db
     .select({ id: alertsTable.id })
     .from(alertsTable)
@@ -50,7 +64,6 @@ async function emit(opts: {
         eq(alertsTable.userId, opts.userId),
         eq(alertsTable.kind, opts.kind),
         sql`${alertsTable.meta} ->> 'dedupeKey' = ${opts.dedupeKey}`,
-        gte(alertsTable.createdAt, new Date(Date.now() - 24 * 60 * 60 * 1000)),
       ),
     )
     .limit(1);
@@ -144,10 +157,13 @@ async function evaluateOverspend(userId: string, rule: typeof alertRules.$inferS
 
 async function evaluateLowBalance(userId: string, rule: typeof alertRules.$inferSelect) {
   if (!rule.accountId || rule.threshold == null) return;
+  // The rule's account must belong to this user's household — otherwise a
+  // crafted rule would leak another user's account name and balance.
+  const ids = await householdUserIds(userId);
   const [acct] = await db
     .select()
     .from(financialAccounts)
-    .where(eq(financialAccounts.id, rule.accountId))
+    .where(and(eq(financialAccounts.id, rule.accountId), inArray(financialAccounts.userId, ids)))
     .limit(1);
   if (!acct) return;
   const bal = Number(acct.currentBalance ?? 0);
@@ -160,6 +176,29 @@ async function evaluateLowBalance(userId: string, rule: typeof alertRules.$infer
       body: `Your account is at or below the $${Number(rule.threshold).toLocaleString()} threshold.`,
       meta: { accountId: acct.id, balance: bal },
       dedupeKey: `low_balance:${acct.id}:${new Date().toISOString().slice(0, 10)}`,
+    });
+  }
+}
+
+async function evaluatePriceIncrease(userId: string, rule: typeof alertRules.$inferSelect) {
+  // threshold = minimum % increase worth alerting on (default 5%).
+  const minPct = rule.threshold != null ? Number(rule.threshold) : 5;
+  const recurring = (await findTool("get_recurring_merchants")!.execute(
+    { days: 365 },
+    { userId },
+  )) as RecurringMerchant[];
+  for (const r of recurring) {
+    const pc = r.priceChange;
+    if (!r.active || !pc || pc.pct < minPct) continue;
+    const lastDay = new Date(r.lastDate).toISOString().slice(0, 10);
+    await emit({
+      userId,
+      ruleId: rule.id,
+      kind: "recurring_price_increase",
+      title: `Price increase — ${r.merchant}: $${pc.from.toFixed(2)} → $${pc.to.toFixed(2)}`,
+      body: `Up ${pc.pct.toFixed(1)}% on the charge dated ${lastDay}.`,
+      meta: { merchant: r.merchant, from: pc.from, to: pc.to, pct: pc.pct },
+      dedupeKey: `price:${r.merchant.toLowerCase()}:${lastDay}`,
     });
   }
 }

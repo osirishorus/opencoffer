@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/lib/db/client";
-import { alerts, alertRules } from "@/lib/db/schema";
-import { evaluateAlerts } from "@/lib/finance/alerts";
+import { alerts, alertRules, financialAccounts } from "@/lib/db/schema";
+import { ALERT_KINDS, evaluateAlerts } from "@/lib/finance/alerts";
+import { householdUserIds } from "@/lib/household";
 import { z } from "zod";
 
 export async function GET() {
@@ -44,41 +45,72 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true });
 }
 
-// ---- /api/alerts/rules ----
+// ---- rules: PUT upserts, DELETE removes ----
+
+const ruleBody = z
+  .object({
+    id: z.string().uuid().optional(),
+    kind: z.enum(ALERT_KINDS),
+    threshold: z.number().finite().nonnegative().nullish(),
+    category: z.string().trim().min(1).max(100).nullish(),
+    accountId: z.string().uuid().nullish(),
+    enabled: z.boolean().optional(),
+  })
+  .superRefine((b, ctx) => {
+    if (b.kind === "large_tx" && b.threshold == null)
+      ctx.addIssue({ code: "custom", path: ["threshold"], message: "threshold required" });
+    if (b.kind === "category_overspend" && !b.category)
+      ctx.addIssue({ code: "custom", path: ["category"], message: "category required" });
+    if (b.kind === "low_balance" && (b.threshold == null || !b.accountId))
+      ctx.addIssue({ code: "custom", path: ["accountId"], message: "account and threshold required" });
+  });
 
 export async function PUT(req: Request) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const body = (await req.json().catch(() => null)) as {
-    kind: string;
-    threshold?: number;
-    category?: string;
-    accountId?: string;
-    enabled?: boolean;
-    id?: string;
-  } | null;
-  if (!body || !body.kind)
-    return NextResponse.json({ error: "bad request" }, { status: 400 });
-  if (body.id) {
-    await db
-      .update(alertRules)
-      .set({
-        kind: body.kind,
-        threshold: body.threshold != null ? String(body.threshold) : null,
-        category: body.category ?? null,
-        accountId: body.accountId ?? null,
-        enabled: body.enabled !== false,
-      })
-      .where(and(eq(alertRules.id, body.id), eq(alertRules.userId, session.user.id)));
-  } else {
-    await db.insert(alertRules).values({
-      userId: session.user.id,
-      kind: body.kind,
-      threshold: body.threshold != null ? String(body.threshold) : null,
-      category: body.category ?? null,
-      accountId: body.accountId ?? null,
-      enabled: body.enabled !== false,
-    });
+  const parsed = ruleBody.safeParse(await req.json().catch(() => null));
+  if (!parsed.success)
+    return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "bad request" }, { status: 400 });
+  const body = parsed.data;
+
+  // Only household accounts may back a low-balance rule.
+  if (body.accountId) {
+    const ids = await householdUserIds(session.user.id);
+    const [acct] = await db
+      .select({ id: financialAccounts.id })
+      .from(financialAccounts)
+      .where(and(eq(financialAccounts.id, body.accountId), inArray(financialAccounts.userId, ids)))
+      .limit(1);
+    if (!acct) return NextResponse.json({ error: "account not found" }, { status: 404 });
   }
+
+  const values = {
+    kind: body.kind,
+    threshold: body.threshold != null ? String(body.threshold) : null,
+    category: body.kind === "category_overspend" ? (body.category ?? null) : null,
+    accountId: body.kind === "low_balance" ? (body.accountId ?? null) : null,
+    enabled: body.enabled !== false,
+  };
+  if (body.id) {
+    const updated = await db
+      .update(alertRules)
+      .set(values)
+      .where(and(eq(alertRules.id, body.id), eq(alertRules.userId, session.user.id)))
+      .returning({ id: alertRules.id });
+    if (!updated.length) return NextResponse.json({ error: "not found" }, { status: 404 });
+  } else {
+    await db.insert(alertRules).values({ userId: session.user.id, ...values });
+  }
+  return NextResponse.json({ ok: true });
+}
+
+export async function DELETE(req: Request) {
+  const session = await auth();
+  if (!session?.user?.id) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const id = z.string().uuid().safeParse(new URL(req.url).searchParams.get("ruleId"));
+  if (!id.success) return NextResponse.json({ error: "bad request" }, { status: 400 });
+  await db
+    .delete(alertRules)
+    .where(and(eq(alertRules.id, id.data), eq(alertRules.userId, session.user.id)));
   return NextResponse.json({ ok: true });
 }

@@ -17,18 +17,53 @@ type Rule = {
   kind: string;
   threshold: number | null;
   category: string | null;
+  accountId: string | null;
   enabled: boolean;
   createdAt: string;
 };
+type AccountOption = { id: string; name: string };
+type Form = { kind: string; threshold?: number; category?: string; accountId?: string };
 
-export function AlertsClient({ initial, rules }: { initial: Alert[]; rules: Rule[] }) {
+const DEFAULT_THRESHOLD: Record<string, number | undefined> = {
+  large_tx: 500,
+  category_overspend: undefined,
+  low_balance: 100,
+  recurring_price_increase: 5,
+};
+
+const inputClass =
+  "h-12 w-full rounded-2xl border border-outline bg-surface px-4 text-on-surface focus:border-primary focus:outline-none disabled:opacity-50";
+
+export function AlertsClient({
+  initial,
+  rules,
+  accounts,
+}: {
+  initial: Alert[];
+  rules: Rule[];
+  accounts: AccountOption[];
+}) {
   const router = useRouter();
   const [items, setItems] = useState(initial);
   const [running, setRunning] = useState(false);
-  const [form, setForm] = useState<{ kind: string; threshold?: number; category?: string }>({
-    kind: "large_tx",
-    threshold: 500,
-  });
+  const [error, setError] = useState<string | null>(null);
+  const [form, setForm] = useState<Form>({ kind: "large_tx", threshold: 500 });
+  const accountName = (id: string | null) => accounts.find((a) => a.id === id)?.name ?? "account";
+
+  const describe = (r: Rule) => {
+    switch (r.kind) {
+      case "large_tx":
+        return `Any transaction ≥ $${r.threshold?.toLocaleString()}`;
+      case "category_overspend":
+        return `${r.category} budget overrun`;
+      case "low_balance":
+        return `${accountName(r.accountId)} balance ≤ $${r.threshold?.toLocaleString()}`;
+      case "recurring_price_increase":
+        return `Recurring charge goes up ≥ ${r.threshold ?? 5}%`;
+      default:
+        return r.kind;
+    }
+  };
 
   const markAllRead = async () => {
     const unread = items.filter((a) => !a.readAt).map((a) => a.id);
@@ -51,12 +86,30 @@ export function AlertsClient({ initial, rules }: { initial: Alert[]; rules: Rule
     }
   };
 
-  const addRule = async () => {
-    await fetch("/api/alerts", {
+  const saveRule = async (body: Record<string, unknown>) => {
+    setError(null);
+    const res = await fetch("/api/alerts", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(form),
+      body: JSON.stringify(body),
     });
+    if (!res.ok) {
+      const j = (await res.json().catch(() => null)) as { error?: string } | null;
+      setError(j?.error ?? "Couldn't save rule");
+      return false;
+    }
+    router.refresh();
+    return true;
+  };
+
+  const addRule = async () => {
+    if (await saveRule(form)) setForm({ kind: form.kind, threshold: DEFAULT_THRESHOLD[form.kind] });
+  };
+
+  const deleteRule = async (id: string) => {
+    setError(null);
+    const res = await fetch(`/api/alerts?ruleId=${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!res.ok) setError("Couldn't delete rule");
     router.refresh();
   };
 
@@ -111,31 +164,33 @@ export function AlertsClient({ initial, rules }: { initial: Alert[]; rules: Rule
         </p>
         <ul className="mt-4 divide-y divide-outline-variant">
           {rules.map((r) => (
-            <li key={r.id} className="grid grid-cols-[1fr_auto] items-center gap-3 py-3">
+            <li key={r.id} className="grid grid-cols-[1fr_auto_auto] items-center gap-2 py-3">
               <div className="body-m">
-                {r.kind === "large_tx" && `Any transaction ≥ $${r.threshold?.toLocaleString()}`}
-                {r.kind === "category_overspend" && `${r.category} budget overrun`}
-                {r.kind === "low_balance" && `Account balance ≤ $${r.threshold?.toLocaleString()}`}
+                {describe(r)}
                 {!r.enabled && <span className="badge ml-2">disabled</span>}
               </div>
               <button
-                onClick={async () => {
-                  await fetch("/api/alerts", {
-                    method: "PUT",
-                    headers: { "content-type": "application/json" },
-                    body: JSON.stringify({
-                      id: r.id,
-                      kind: r.kind,
-                      threshold: r.threshold,
-                      category: r.category,
-                      enabled: !r.enabled,
-                    }),
-                  });
-                  router.refresh();
-                }}
+                onClick={() =>
+                  saveRule({
+                    id: r.id,
+                    kind: r.kind,
+                    threshold: r.threshold,
+                    category: r.category,
+                    accountId: r.accountId,
+                    enabled: !r.enabled,
+                  })
+                }
                 className="btn btn-text"
               >
                 {r.enabled ? "Disable" : "Enable"}
+              </button>
+              <button
+                onClick={() => deleteRule(r.id)}
+                className="btn btn-text"
+                aria-label="Delete rule"
+                title="Delete rule"
+              >
+                <Trash2 size={16} />
               </button>
             </li>
           ))}
@@ -144,37 +199,58 @@ export function AlertsClient({ initial, rules }: { initial: Alert[]; rules: Rule
           )}
         </ul>
 
-        <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-[200px_1fr_180px_auto]">
+        <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-[220px_1fr_180px_auto]">
           <select
             value={form.kind}
-            onChange={(e) => setForm({ ...form, kind: e.target.value })}
-            className="h-12 w-full rounded-2xl border border-outline bg-surface px-4 text-on-surface focus:border-primary focus:outline-none disabled:opacity-50"
+            onChange={(e) =>
+              setForm({ kind: e.target.value, threshold: DEFAULT_THRESHOLD[e.target.value] })
+            }
+            className={inputClass}
           >
             <option value="large_tx">Large transaction</option>
             <option value="category_overspend">Category overspend</option>
-            <option value="low_balance">Low balance (per account; configure manually)</option>
+            <option value="low_balance">Low balance</option>
+            <option value="recurring_price_increase">Subscription price increase</option>
           </select>
-          <input
-            value={form.category ?? ""}
-            onChange={(e) => setForm({ ...form, category: e.target.value })}
-            placeholder="Category (overspend only)"
-            disabled={form.kind !== "category_overspend"}
-            className="h-12 w-full rounded-2xl border border-outline bg-surface px-4 text-on-surface focus:border-primary focus:outline-none disabled:opacity-50"
-          />
+          {form.kind === "low_balance" ? (
+            <select
+              value={form.accountId ?? ""}
+              onChange={(e) => setForm({ ...form, accountId: e.target.value || undefined })}
+              className={inputClass}
+            >
+              <option value="">Choose an account…</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              value={form.category ?? ""}
+              onChange={(e) => setForm({ ...form, category: e.target.value })}
+              placeholder="Category (overspend only)"
+              disabled={form.kind !== "category_overspend"}
+              className={inputClass}
+            />
+          )}
           <input
             type="number"
+            min={0}
             value={form.threshold ?? ""}
-            onChange={(e) => setForm({ ...form, threshold: Number(e.target.value) })}
-            placeholder="Threshold ($)"
-            className="h-12 w-full rounded-2xl border border-outline bg-surface px-4 text-on-surface focus:border-primary focus:outline-none disabled:opacity-50"
+            onChange={(e) =>
+              setForm({ ...form, threshold: e.target.value === "" ? undefined : Number(e.target.value) })
+            }
+            placeholder={form.kind === "recurring_price_increase" ? "Min increase (%)" : "Threshold ($)"}
+            disabled={form.kind === "category_overspend"}
+            className={inputClass}
           />
           <button onClick={addRule} className="btn btn-filled">
             <Plus size={16} /> Add rule
           </button>
         </div>
+        {error && <p className="body-s mt-3 text-error">{error}</p>}
       </section>
     </div>
   );
 }
-
-void Trash2;
