@@ -29,6 +29,20 @@ import {
 } from "@/lib/finance/display";
 import { categorizeUncategorized, recategorizeAll } from "@/lib/finance/categorize";
 import { listRealAssetsForUser } from "@/lib/real-assets/data";
+import { analyzeRecurring, type Charge, type RecurringAnalysis } from "@/lib/finance/recurring";
+
+export type RecurringMerchant = {
+  merchant: string;
+  months: number;
+  typicalAmount: number;
+  lastDate: Date;
+  totalCharges: number;
+  cadence: RecurringAnalysis["cadence"];
+  monthlyEquivalent: number;
+  nextExpected: Date | null;
+  active: boolean;
+  priceChange: RecurringAnalysis["priceChange"];
+};
 
 const ACCOUNT_GROUPS = ["cash", "credit", "retirement", "brokerage", "hsa", "loan", "other"] as const;
 type AccountGroup = (typeof ACCOUNT_GROUPS)[number];
@@ -374,12 +388,12 @@ const getHoldings: FinanceTool = {
 const getRecurringMerchants: FinanceTool = {
   name: "get_recurring_merchants",
   description:
-    "Heuristically detect recurring outflow merchants (subscriptions, rent, utilities) by finding merchants that appear in 2+ different months with similar amounts. Useful for 'what are my subscriptions'.",
+    "Heuristically detect recurring outflow merchants (subscriptions, rent, utilities) by finding merchants that appear in 2+ different months. Each row includes the billing cadence (weekly/biweekly/monthly/quarterly/annual/irregular), monthlyEquivalent cost, nextExpected charge date, active (false = likely cancelled), and priceChange when the latest charge differs ≥5% from before. Useful for 'what are my subscriptions', 'what bills are coming up', or 'did anything get more expensive'.",
   schema: z.object({ days: z.number().int().min(30).max(730) }).strict(),
   execute: async ({ days }, { userId }) => {
     const ids = await householdUserIds(userId);
-    // Find merchants where at least 2 distinct months have a charge, and the
-    // most-common amount accounts for >=50% of all charges.
+    // Candidate merchants are those charged in at least 2 distinct months;
+    // analyzeRecurring then works out cadence, next charge, and price changes.
     const rows = await db
       .select({
         merchant: transactions.merchantName,
@@ -399,41 +413,42 @@ const getRecurringMerchants: FinanceTool = {
         ),
       );
 
-    type Bucket = { months: Set<string>; amounts: number[]; lastDate: Date; sample: string };
+    type Bucket = { months: Set<string>; charges: Charge[]; sample: string };
     const byMerchant = new Map<string, Bucket>();
     for (const r of rows) {
       const key = (r.merchant ?? r.name).toLowerCase().trim();
       if (!key) continue;
       const b =
         byMerchant.get(key) ??
-        { months: new Set<string>(), amounts: [], lastDate: r.date, sample: r.merchant ?? r.name };
+        { months: new Set<string>(), charges: [], sample: r.merchant ?? r.name };
       b.months.add(r.month);
-      b.amounts.push(Math.abs(Number(r.amount)));
-      if (r.date > b.lastDate) b.lastDate = r.date;
+      b.charges.push({ date: r.date, amount: Number(r.amount) });
       byMerchant.set(key, b);
     }
 
-    const results: Array<{
-      merchant: string;
-      months: number;
-      typicalAmount: number;
-      lastDate: Date;
-      totalCharges: number;
-    }> = [];
+    const results: RecurringMerchant[] = [];
     for (const b of byMerchant.values()) {
       if (b.months.size < 2) continue;
-      // Median
-      const sorted = [...b.amounts].sort((a, c) => a - c);
-      const med = sorted[Math.floor(sorted.length / 2)];
+      const a = analyzeRecurring(b.charges);
+      if (!a) continue;
       results.push({
         merchant: b.sample,
         months: b.months.size,
-        typicalAmount: Math.round(med * 100) / 100,
-        lastDate: b.lastDate,
-        totalCharges: b.amounts.length,
+        typicalAmount: a.typicalAmount,
+        lastDate: a.lastDate,
+        totalCharges: b.charges.length,
+        cadence: a.cadence,
+        monthlyEquivalent: a.monthlyEquivalent,
+        nextExpected: a.nextExpected,
+        active: a.active,
+        priceChange: a.priceChange,
       });
     }
-    return results.sort((a, c) => c.months - a.months || c.totalCharges - a.totalCharges);
+    // Active subscriptions first, then the longest-running.
+    return results.sort(
+      (a, c) =>
+        Number(c.active) - Number(a.active) || c.months - a.months || c.totalCharges - a.totalCharges,
+    );
   },
 };
 
@@ -1074,12 +1089,9 @@ const chartRecurringMerchants: FinanceTool = {
     })
     .strict(),
   execute: async ({ days, limit }, { userId }) => {
-    const recurring = (await getRecurringMerchants.execute({ days }, { userId })) as Array<{
-      merchant: string;
-      months: number;
-      typicalAmount: number;
-    }>;
+    const recurring = (await getRecurringMerchants.execute({ days }, { userId })) as RecurringMerchant[];
     const data = recurring
+      .filter((row) => row.active)
       .sort((a, b) => b.typicalAmount - a.typicalAmount)
       .slice(0, limit)
       .map((row) => ({

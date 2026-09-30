@@ -92,7 +92,7 @@ hermes "Summarise my last month of spending and flag anything unusual."`;
     ["search_transactions", "text search merchants/desc, date+amount filters"],
     ["get_spending_by_category", "outflows aggregated by category and period"],
     ["get_holdings", "investment holdings + value"],
-    ["get_recurring_merchants", "heuristic subscription/recurring detection"],
+    ["get_recurring_merchants", "recurring charges: cadence, next charge, price changes"],
     ["get_net_worth", "assets − liabilities"],
     ["get_cash_flow / compare_periods", "income vs outflow over time, period deltas"],
     ["chart_*", "deterministic chart specs the agent can render"],

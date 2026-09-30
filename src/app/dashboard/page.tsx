@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
-import { findTool } from "@/lib/finance/tools";
+import { findTool, type RecurringMerchant } from "@/lib/finance/tools";
 import { formatDate } from "@/lib/utils";
 import { Amount } from "@/components/Amount";
 import { AppBar } from "@/components/AppBar";
@@ -24,7 +24,7 @@ export default async function Dashboard() {
     callTool<{ assets: number; liabilities: number; netWorth: number; accountCount: number; realAssetCount: number }>(
       "get_net_worth", {}, userId,
     ),
-    callTool<Array<{ merchant: string; months: number; typicalAmount: number; lastDate: Date; totalCharges: number }>>(
+    callTool<RecurringMerchant[]>(
       "get_recurring_merchants", { days: 365 }, userId,
     ),
     // Consumption-only spending — retirement + investments excluded.
@@ -68,7 +68,10 @@ export default async function Dashboard() {
     month, total: Math.round(total * 100) / 100,
   }));
 
-  const monthlyRecurringTotal = recurring.reduce((s, r) => s + r.typicalAmount, 0);
+  // Only still-active charges, normalised by cadence — a lapsed gym membership or
+  // an annual renewal shouldn't count at face value every month.
+  const activeRecurring = recurring.filter((r) => r.active);
+  const monthlyRecurringTotal = activeRecurring.reduce((s, r) => s + r.monthlyEquivalent, 0);
   const top = topCategories(spending, 6);
   const today = new Date();
 
@@ -183,9 +186,9 @@ export default async function Dashboard() {
             <MiniCard
               Icon={Repeat}
               tone="default"
-              label="Recurring spend (detected)"
+              label="Recurring spend · per month"
               value={<Amount value={monthlyRecurringTotal} />}
-              sub={`${recurring.length} merchants seen 2+ months`}
+              sub={`${activeRecurring.length} active of ${recurring.length} detected`}
             />
           </div>
 
@@ -246,7 +249,7 @@ export default async function Dashboard() {
             <div className="eyebrow">Detected — last 12 mo</div>
             <h2 className="coffer-serif mt-1 text-2xl">Recurring</h2>
             <ul className="mt-4 divide-y divide-outline-variant">
-              {recurring.slice(0, 6).map((r, i) => (
+              {activeRecurring.slice(0, 6).map((r, i) => (
                 <li key={i} className="grid grid-cols-[1fr_auto] items-center gap-4 py-3">
                   <div className="min-w-0">
                     <div className="body-m truncate text-on-surface">{r.merchant}</div>
@@ -260,7 +263,7 @@ export default async function Dashboard() {
                   </div>
                 </li>
               ))}
-              {recurring.length === 0 && (
+              {activeRecurring.length === 0 && (
                 <li className="body-m py-6 text-center text-on-surface-variant">
                   No recurring merchants yet — needs 2+ months of history.
                 </li>
